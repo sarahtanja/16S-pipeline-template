@@ -1,0 +1,453 @@
+---
+title: "Running PICRUSt2"
+author: "Sarah Tanja"
+date: 2026-03-16
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools: 
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = FALSE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "") # Prevents appending '##' to beginning of lines in code output)        
+```
+
+# Background
+
+[How does PICRUSt2 work? What does it do?](https://github.com/picrust/picrust2/wiki/How-does-PICRUSt2-work%3F-What-does-it-do%3F)
+
+
+
+# Load libraries
+
+```{r, eval=TRUE}
+library(tidyverse)
+library(qiime2R)
+```
+
+
+# Subset Feature table (BIOM)
+I want to subset the feature table to only the taxa that were found to be differentially abundant/prevalent in the maaslin3 analysis.
+We ran the maaslin3 analysis on the collapsed-l6 feature table. 
+
+located at path `../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza`
+
+```{r, engine='bash', eval=TRUE}
+qiime tools peek ../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza
+```
+
+```{r}
+feat_tbl <- read_qza("../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza")$data
+```
+
+Load in significant maaslin results
+
+```{r}
+sig_res <- read_tsv("../../output/maaslin/m1/significant_results.tsv")
+```
+
+Pull out only the unique features
+
+```{r}
+sig_feat <- sig_res %>% 
+  distinct(., feature)
+```
+
+Load in the taxonomy to ASV dataframe
+
+```{r}
+tax <- read_qza("../../salipante/241121_StonyCoral/270x200/250414_270x200_representative-sequences_taxonomy.qza")$data
+```
+
+Make sure strings are formatted the same
+
+```{r}
+tax2 <- tax %>%
+  mutate(
+    feature = str_replace_all(Taxon, ";\\s+", ";")
+  )
+```
+
+```{r}
+sig_asvs <- tax2%>%
+  filter(feature %in% sig_feat$feature)
+
+sig_ids <- sig_asvs %>%
+  pull(`Feature.ID`) %>%
+  unique()
+```
+
+returns **all ASVs assigned to those 82 collapsed taxa**
+
+So 82 significant taxa → 432 ASVs.
+
+That means, on average, each significant collapsed taxon maps to about:
+
+```         
+432 / 82
+```
+
+≈ **5.3 ASVs per taxon**.
+
+```{r}
+sig_asv_map <- tax2 %>%
+  filter(feature %in% sig_feat$feature)
+
+sig_asv_map %>%
+  count(feature, name = "n_asvs") %>%
+  arrange(desc(n_asvs))
+```
+
+```{r}
+sig_feat %>%
+  distinct(feature) %>%
+  anti_join(tax2 %>% distinct(feature), by = "feature")
+```
+
+```{r}
+missing_sig <- sig_feat %>%
+  distinct(feature) %>%
+  anti_join(tax2 %>% distinct(feature), by = "feature")
+
+missing_sig$feature[1:10]
+```
+
+Use a function that:
+
+removes spaces after ;
+
+splits taxonomy ranks
+
+finds the first rank containing uncultured / uncultured_bacterium
+
+replaces that rank and all lower ranks with \_\_
+
+pastes it back together
+
+```{r}
+
+format_tax <- function(x){
+
+  x %>%
+    str_replace_all(";\\s+", ";") %>%
+    map_chr(function(tax_string){
+
+      ranks <- str_split(tax_string, ";")[[1]]
+
+      length(ranks) <- 7
+      ranks[is.na(ranks)] <- "__"
+
+      hit <- which(str_detect(
+        ranks,
+        regex("uncultured", ignore_case = TRUE)
+      ))
+
+      if(length(hit) > 0){
+        ranks[hit[1]:7] <- "__"
+      }
+
+      paste(ranks, collapse=";")
+    })
+}
+```
+
+```{r}
+tax2 <- tax %>%
+  mutate(feature_clean = format_tax(Taxon))
+
+sig_feat2 <- sig_feat %>% 
+  mutate(feature_clean = format_tax(feature))
+```
+
+Check matching
+
+```{r}
+sig_feat2 %>%
+  distinct(feature_clean) %>%
+  anti_join(tax2 %>% distinct(feature_clean))
+```
+
+Filter the ASV feature table to the 83 unique taxa in maaslin sig results
+
+```{r}
+sig_asvs <- tax2 %>%
+  filter(feature_clean %in% sig_feat2$feature_clean)
+
+tibble(`feature-id` = sig_ids) %>%
+  write_tsv("sig_asv_ids.tsv")
+
+
+```
+
+This gives 1942 ASVs! Those 1,942 ASVs are all sequence variants belonging to taxa implicated by your MaAsLin3 model. They are not all individually significant ASVs. Taxa-level significance came from collapsed abundance modeling.
+
+## Filter features in QIIME to ASVs that contributed to sig taxa
+
+```{r, engine='bash'}
+qiime feature-table filter-features \
+  --i-table ../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza \
+  --m-metadata-file sig_asv_ids.tsv \
+  --o-filtered-table sig_featuretable.qza
+```
+
+## Sequence file
+
+located at path `../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza`
+
+```{r, engine='bash', eval=TRUE}
+qiime tools peek ../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza
+
+```
+
+Filter representative sequences
+
+```{r, engine='bash'}
+qiime feature-table filter-seqs \
+  --i-data ../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza \
+  --m-metadata-file sig_asv_ids.tsv \
+  --o-filtered-data sig_repseqs.qza
+```
+
+## Run `qiime picrust2 full-pipeline`
+
+```{r, engine='bash'}
+qiime picrust2 full-pipeline \
+   --i-table sig_featuretable.qza \
+   --i-seq sig_repseqs.qza \
+   --output-dir ../../output/picrust2 \
+   --p-placement-tool sepp \
+   --p-threads 4 \
+   --p-hsp-method pic \
+   --p-max-nsti 2 \
+   --verbose
+```
+
+::: callout-warning
+Standard error of the above failed command: Warning - 1169 input sequences aligned poorly to reference sequences (--min_align option specified a minimum proportion of 0.8 aligning to reference sequences).
+:::
+
+See [issue#122](https://github.com/picrust/picrust2/issues/122)
+
+> There's a good chance your input sequences are on the negative strand and aren't being aligned properly. In case some one may need this, use seqtk to get reverse complementary seqs, then using picrust2_pipeline.py. seqtk seq -r otus.fa.format.fasta \> otus_rc.fa
+
+### Install SEQTK
+
+Run in terminal and proceed with 'y'
+
+```         
+conda install -c bioconda seqtk
+```
+
+### Reverse compliment
+
+Representative sequences (.qza → .fasta)
+
+```{r, engine='bash'}
+qiime tools export --help
+```
+
+```{r, engine='bash'}
+qiime tools export \
+  --input-path ../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza \
+  --output-path ../output/
+
+```
+
+Reverse compliment the sequences with `seqtk`
+
+```{r, engine='bash'}
+seqtk seq -r ../output/dna-sequences.fasta > ../output/rep_seqs_rc.fasta
+```
+
+```{r, engine='bash'}
+qiime tools list-types
+```
+
+```{r, engine='bash'}
+qiime tools import \
+  --type 'FeatureData[Sequence]' \
+  --input-path ../output/rep_seqs_rc.fasta \
+  --output-path ../output/rep_seqs_rc.qza \
+  --input-format DNAFASTAFormat
+```
+
+```{r, engine='bash'}
+qiime tools peek ../output/rep_seqs_rc.qza
+```
+
+### Run picrust with reverse compliment
+
+```{r, engine='bash'}
+qiime picrust2 full-pipeline \
+   --i-table ../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza \
+   --i-seq ../output/rep_seqs_rc.qza \
+   --output-dir ../output/picrust2 \
+   --p-placement-tool sepp \
+   --p-threads 4 \
+   --p-hsp-method pic \
+   --p-max-nsti 2 \
+   --verbose
+```
+
+::: callout-warning
+```         
+Standard error of the above failed command:
+Stopping - all 7182 input sequences aligned poorly to reference sequences (--min_align option specified a minimum proportion of 0.8 aligning to reference sequences).
+```
+
+OK this likely indicates that input sequences were originally on the positive strand, and the seqtk reverse compliment we made is the negative strand.. the number of input sequences that failed to align increased from 1169/7182 (16%) to 7182/7182 (100%)
+:::
+
+> can also consider lowering the --min_align flag so reads have a better chance of matching poorly characterized taxa.
+
+--p-min-align PROPORTION Range(0.0, 1.0) Proportion of the total length of an input query sequence that must align with reference sequences. Any sequences with lengths below this value after making an alignment with reference sequences will be excluded from the placement and all subsequent steps. \[default: 0.8\]
+
+## Lower --p-min-align
+
+```{r, engine='bash'}
+qiime picrust2 full-pipeline \
+   --i-table ../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza \
+   --i-seq ../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza \
+   --output-dir ../output/picrust2 \
+   --p-placement-tool sepp \
+   --p-threads 4 \
+   --p-hsp-method pic \
+   --p-max-nsti 2 \
+   --verbose \
+   --p-min-align 0.1
+```
+
+### Troubleshoot error
+
+::: callout-warning
+Error running this command: mv /tmp/tmpulv7acg9/picrust2_out/intermediate/place_seqs/sepp_out/output_placement.newick /tmp/tmpulv7acg9/picrust2_out/out.tre
+
+Standard error of the above failed command: mv: relocation error: /lib/x86_64-linux-gnu/libacl.so.1: symbol getxattr version ATTR_1.0 not defined in file libattr.so.1 with link time reference
+:::
+
+The error indicates there are multiple or corrupted versions between `libacl.so.1` and `libattr.so.1` on your system. To get around this we can set the library path when running qiime commands.
+
+## Set `LD_LIBRARY_PATH` when running QIIME
+
+```{r, engine='bash'}
+LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH \
+qiime picrust2 full-pipeline \
+   --i-table ../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza \
+   --i-seq ../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza \
+   --output-dir ../output/picrust2 \
+   --p-placement-tool sepp \
+   --p-threads 4 \
+   --p-hsp-method pic \
+   --p-max-nsti 2 \
+   --verbose \
+   --p-min-align 0.1
+```
+
+> ::: callout-warning
+> Warning - 661 input sequences aligned poorly to reference sequences (--min_align option specified a minimum proportion of 0.1 aligning to reference sequences). These input sequences will not be placed and will be excluded from downstream steps. 323 of 6521 ASVs were above the max NSTI cut-off of 2.0 and were removed from the downstream analyses.
+> :::
+
+The output artifacts of this command are the red boxes in the flowchart [here](https://huttenhower.sph.harvard.edu/picrust/#:~:text=PICRUSt%202.0%20Flowchart).
+
+These output files in (q2-picrust2_output) are:
+
+-   ec_metagenome.qza : EC metagenome predictions (rows are EC numbers and columns are samples).
+
+-   ko_metagenome.qza : KO metagenome predictions (rows are KOs and columns are samples).
+
+-   pathway_abundance.qza : MetaCyc pathway abundance predictions (rows are pathways and columns are samples).
+
+The artifacts are all of type FeatureTable\[Frequency\], which means they can be used with QIIME 2 plugins that process and analyze these datatypes.
+
+# Run with `mp` & `epa-ng`
+
+> if users have at least 16 GB of RAM they should place reads with `epa-ng`
+
+```         
+--p-placement-tool TEXT Choices('epa-ng', 'sepp')
+                       Placement tool to use when placing sequences into
+                       reference tree. EPA-ng is the default, but SEPP is less
+                       memory intensive.                   [default: 'epa-ng']
+```
+
+> **We recommend that in practice users use the `mp` method**
+
+```         
+--p-hsp-method TEXT Choices('mp', 'emp_prob', 'pic', 'scp',
+    'subtree_average') Which hidden-state prediction method to use.
+                                                               [default: 'mp']
+```
+
+```{r, engine='bash'}
+LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH \
+qiime picrust2 full-pipeline \
+   --i-table ../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza \
+   --i-seq ../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza \
+   --output-dir ../output/picrust2_epa-ng \
+   --p-placement-tool epa-ng \
+   --p-threads 20 \
+   --p-hsp-method mp \
+   --p-max-nsti 2 \
+   --verbose \
+   --p-min-align 0.1
+```
+
+::: callout-warning
+Warning - 661 input sequences aligned poorly to reference sequences (--min_align option specified a minimum proportion of 0.1 aligning to reference sequences). These input sequences will not be placed and will be excluded from downstream steps. 287 of 6521 ASVs were above the max NSTI cut-off of 2.0 and were removed from the downstream analyses.
+:::
+
+# Next up ..
+
+## [**Analysis of PICRUSt2 output**](https://github.com/picrust/picrust2/wiki/How-does-PICRUSt2-work%3F-What-does-it-do%3F#:~:text=pipeline%20here.-,Analysis%20of%20PICRUSt2%20output,-You%20can%20essentially)
+
+You can essentially treat these as you would any other microbiome feature table (like your results based on taxonomy within the samples), but this remains a bit of an open question. Some things that users are often interested in are:
+
+-   Which taxa are predicted to contribute to a function within different samples
+
+-   Whether predicted functional abundance profiles differ between samples from different treatments
+
+-   Whether the predicted abundance of certain functions differs between samples from different treatments
+
+Some potentially useful tools for this further analysis are (note that we are not involved in the development/maintenance of these tools unless noted):
+
+-   [ggpicrust2](https://github.com/cafferychen777/ggpicrust2) - a comprehensive package for analysing PICRUSt2 output
+
+-   [JarrVis](https://github.com/dhwanidesai/JarrVis) - for making sankey diagrams to visualise the taxa that contribute to different functions within different sample groupings (you can see an example of it being used for analysis of PICRUSt2 output [here](https://github.com/dhwanidesai/JarrVis/wiki/Reanalysis-of-functions-predicted-from-16S-amplicon-sequence-data-in-a-time-series-%E2%80%93-sea-water-samples-(Raes-et-al.,-2022)) (developed/maintained by a past member of the Langille lab)
+
+-   [FuncDiv](https://academic.oup.com/bioinformatics/article/39/1/btac809/6909011?login=true) - R package for calculating the diversity of taxa that contribute to different functions (developed/maintained by Gavin Douglas, main developer of PICRUSt2 - although no longer involved in development/maintenance - and a past member of the Langille lab)
+
+-   [Microbiome Helper 2](https://github.com/LangilleLab/microbiome_helper/wiki/Home-%E2%80%90-Microbiome-Helper-2) - this is currently a work in progress, but we plan to have some complete tutorials for the bioinformatic and statistical analysis of microbiome data, including PICRUSt2 output (developed/maintained by us in the Langille lab)
+
+-   [WHAM!](https://bmcgenomics.biomedcentral.com/articles/10.1186/s12864-018-4870-z) - designed for visualisation of taxa/functions within metagenomic data but could also be used with taxa within samples along with PICRUSt2 output
+
+-   [BURRITO](https://borenstein-lab.github.io/burrito/) - visualisation tool for exploring links between taxonomy and function within microbiome data
+
+-   [MetaViz](https://epiviz.github.io/metaviz/) - another tool designed for visualisation and analysis of metagenomic sequencing data, but may work for PICRUSt2 output
+
+```{r sessionInfo}
+sessionInfo()
+```

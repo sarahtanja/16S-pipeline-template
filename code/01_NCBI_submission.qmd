@@ -1,0 +1,52 @@
+---
+title: "NCBI Submission"
+author: "Sarah Tanja"
+date: 09/03/2026
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = TRUE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "" # Prevents appending '##' to beginning of lines in code output
+)        
+```
+
+# **1 Background research**
+
+- Watch this 10min video tutorial: [How to Submit to SRA, A Beginner’s Guide](https://www.youtube.com/watch?v=PTg9Ru68fc0)
+
+- Read the [SRA Submission Wizard Help](https://www.ncbi.nlm.nih.gov/sra/docs/submitportal/) page
+
+# **2 Log in to NCBI**
+
+Navigate to the NCBI Submission Portal Login: <https://account.ncbi.nlm.nih.gov/?back_url=https%3A//submit.ncbi.nlm.nih.gov/>
+
+Log-in through ORCiD, or sign-up directly with NCBI to create an account.
+
+# 3 Examine fastq files
+
+```{r, engine='bash'}
+
+```
+
+Each sample will have 4 files to upload:
+
+- R1 fastq.gz
+
+- R1 fastq.gz.md5
+
+- R2 fastq.gz
+
+- R2 fastq.gz.md5
+
+```{r, engine='bash'}
+ls -1 ../input/fastq/*fastq.gz* | wc -l
+```

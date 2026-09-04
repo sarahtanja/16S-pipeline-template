@@ -1,0 +1,1242 @@
+---
+title: "Compositional Data Analysis" 
+subtitle: "Following Gloor et al. 2017 recommendations for microbiome compositional data analysis"
+author: "Sarah Tanja" 
+date: 10/17/2025 
+date-modified: today
+format: 
+  gfm: 
+    toc: true 
+    number-sections: true
+  html: 
+    theme: journal
+    highlight-style: github 
+    page-layout: article 
+    code-background: true
+    code-tools: 
+      source: true 
+      toggle: true
+    toc: true 
+    toc-depth: 2
+    toc-location: left 
+    number-sections: true 
+    df-print: kable 
+    smooth-scroll: true 
+    link-external-icon: true 
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+bibliography: "../../microbiome_bibtex.bib"
+editor: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = TRUE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "" # Prevents appending '##' to beginning of lines in code output  
+)
+```
+
+# Background
+
+This analysis follows the recommendations from Gloor et al. 2017 for compositional data analysis of microbiome data.
+Microbiome sequence count data are compositional - they represent relative abundances constrained to sum to a total (sequencing depth).
+This requires specialized statistical methods that account for the compositional nature of the data.
+
+Key recommendations from Gloor et al. 2017: - Use centered log-ratio (CLR) transformation to convert compositional data to Euclidean space - Calculate Aitchison distance (Euclidean distance on CLR-transformed data) for dissimilarity - Use variance-based methods like PCA on CLR-transformed data - Perform statistical tests on transformed data
+
+# Setup
+
+```{r}
+# Define file paths
+feature_table_path <- "../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza"
+metadata_path <- "../../metadata/meta.csv"
+taxonomy_path <- "../../salipante/241121_StonyCoral/270x200/250414_270x200_representative-sequences_taxonomy.qza"
+```
+
+## Load packages
+
+```{r, eval=FALSE}
+# Check R version
+# R.version.string
+
+# Install and load required packages
+#if (!requireNamespace("BiocManager", quietly = TRUE)) {
+#  install.packages("BiocManager")
+#}
+# Install Bioconductor packages
+#if (!requireNamespace("phyloseq", quietly = TRUE)) {
+#  BiocManager::install("phyloseq")
+#}
+# Install qiime2R from GitHub
+#if (!requireNamespace("qiime2R", quietly = TRUE)) {
+#  devtools::install_github("jbisanz/qiime2R")
+#}
+```
+
+```{r}
+# Load libraries
+library(tidyverse)
+library(qiime2R)
+library(phyloseq)
+library(vegan)
+library(compositions)
+library(zCompositions)
+library(ggplot2)
+library(reshape2)
+library(corrplot)
+library(ggsidekick) # for theme_sleek from sean anderson
+library(patchwork)
+library(ape)
+```
+
+
+## Custom ggplot themes
+
+```{r theme}
+theme_sleek_axe <- function() {
+  theme_sleek() +
+    theme(
+      panel.border = element_blank(),
+      axis.line.x  = element_line(color = "grey70"),
+      axis.line.y  = element_line(color = "grey70"),
+      
+      plot.title = element_text(
+        size  = 12,
+        color = "grey30",
+        hjust = 0.5,
+        margin = margin(b = 20)
+      ),
+      
+      strip.text = element_text(size = 10, color = "grey30"),
+      
+      plot.subtitle = element_text(
+        size   = 10,
+        color  = "grey30",
+        hjust  = 0.5,
+        margin = margin(t = 0)
+      ),
+      
+      axis.title = element_text(size = 10, color = "grey30"),
+      axis.text = element_text(size = 10, color = "grey30"),
+      legend.title = element_text(size = 10, color = "grey30"),
+      legend.text = element_text(size = 10, color = "grey30")
+    )
+}
+
+
+theme_pptx <- function() {
+  theme_sleek() +
+    theme(
+      panel.border = element_blank(),
+      axis.line.x  = element_line(color = "grey70"),
+      axis.line.y  = element_line(color = "grey70"),
+      
+      plot.title = element_text(
+        size  = 40,
+        color = "grey30",
+        hjust = 0.5,
+        margin = margin(b = 20)
+      ),
+      
+      strip.text = element_text(size = 24, color = "grey30"),
+      
+      plot.subtitle = element_text(
+        size   = 24,
+        color  = "grey30",
+        hjust  = 0.5,
+        margin = margin(b = 40)
+      ),
+      
+      axis.title = element_text(size = 24, color = "grey30"),
+      axis.text = element_text(size = 24, color = "grey30"),
+      legend.title = element_text(size = 24, color = "grey30"),
+      legend.text = element_text(size = 24, color = "grey30")
+    )
+}
+
+```
+
+## Geoms
+
+```{r geoms}
+geom_defaults <- function() {
+  update_geom_defaults("point",      list(size = 4, stroke = 1))
+  update_geom_defaults("line",       list(linewidth = 0.5))
+  update_geom_defaults("boxplot",    list(linewidth = 0.5))
+  update_geom_defaults("violin",     list(linewidth = 0.5))
+  update_geom_defaults("vline",      list(linewidth = 0.5))
+  update_geom_defaults("hline",      list(linewidth = 0.5))
+  update_geom_defaults("abline",     list(linewidth = 0.5))
+  update_geom_defaults("errorbar",   list(linewidth = 0.5))
+  update_geom_defaults("pointrange", list(linewidth = 0.5))
+  update_geom_defaults("crossbar",   list(linewidth = 0.5))
+  update_geom_defaults("linerange",  list(linewidth = 0.5))
+  update_geom_defaults("path", list(linewidth = 1))
+  update_geom_defaults("segment", list(linewidth = 0.5))
+  update_geom_defaults("text", list(size = 3))
+}
+
+geom_pptx <- function() {
+  update_geom_defaults("point",   list(size = 10, stroke = 4))
+  update_geom_defaults("line",    list(linewidth = 1.5))
+  update_geom_defaults("boxplot", list(linewidth = 1.2))
+  update_geom_defaults("violin",  list(linewidth = 1.2))
+  update_geom_defaults("vline", list(linewidth = 1.5))
+  update_geom_defaults("hline", list(linewidth = 1.5))
+  update_geom_defaults("abline", list(linewidth = 1.5))
+  update_geom_defaults("errorbar", list(linewidth = 1.5))
+  update_geom_defaults("pointrange", list(linewidth = 1.5))
+  update_geom_defaults("crossbar", list(linewidth = 1.5))
+  update_geom_defaults("linerange", list(linewidth = 4))
+  update_geom_defaults("path", list(linewidth = 4))
+  update_geom_defaults("segment", list(linewidth = 1.5))
+  update_geom_defaults("text", list(size = 7))
+}
+
+```
+
+
+## Set colorschemes
+
+```{r colors}
+leachate.colors <- c(control = "#5ABDAC", 
+                low = "#BBC7FF",
+                mid = "#7D8BFF", 
+                high = "#592F7D")
+
+stage.5.colors <- c(
+  egg           = "#FFE066",
+  cleavage      = "#FFBA08",
+  morula        = "#F48C06",
+  prawnchip     = "#DC2F02",
+  earlygastrula = "#6A040F"
+  )
+
+stage.3.colors <- c(
+  cleavage      = "#FFBA08",
+  prawnchip     = "#DC2F02",
+  earlygastrula = "#6A040F"
+  )
+
+night.colors <- c(July_6th = "#21918C", 
+                  July_7th = "#578B21", 
+                  July_8th = "#1E2440")
+
+status.colors <- c(typical   = "#75C165", 
+                   uncertain = "#E3FAA5", 
+                   malformed = "#8B0069")
+```
+
+# Load Data
+
+## Load metadata
+
+```{r}
+# Load metadata
+meta <- read_csv(metadata_path)
+
+# set factors
+meta <- meta %>% 
+  mutate(
+    collection_date = as.Date(collection_date, format = "%d-%b-%Y"),
+    stage    = factor(stage,    levels = c("cleavage", "prawnchip", "earlygastrula"), ordered = TRUE),
+    leachate = factor(leachate, levels = c("control", "low", "mid", "high"),        ordered = TRUE),
+    spawn_night = factor(
+      collection_date,
+      levels  = as.Date(c("06-Jul-2024", "07-Jul-2024", "08-Jul-2024"), format = "%d-%b-%Y"),
+      labels  = c("July 6th", "July 7th", "July 8th"),
+      ordered = TRUE
+    )
+  )
+
+
+# View metadata structure
+str(meta)
+```
+
+## Import QIIME2 artifacts
+
+### Feature table
+
+Our qiime2 feature table is in a .qza artifact format, which we can read into R using the `qiime2R` package.
+The feature table contains the "count" data for each sample (in columns) and Amplicon Sequence Variance (ASV) feature (in rows).
+The ASV features in the feature table rows are renamed as MD5 hashes of the DNA sequence.
+Instead of storing the full sequence as the feature ID, the pipeline stores a hash of the sequence string.The hash string uniquely identifies one exact DNA sequence in the feature table.
+
+ASV (Amplicon Sequence Variant) :
+
+-   An exact biological sequence inferred after error correction.
+-   No clustering threshold.
+-   Each unique sequence (after denoising) is treated as its own unit.
+-   Higher resolution and reproducible across studies.
+-   Think exact sequence identity.
+
+```{r}
+# Load feature table from QIIME2 artifact
+feature_table <- read_qza(feature_table_path)$data
+```
+
+### Taxonomy
+
+The taxonomy table links the ASV MD5 hashes to the lowest taxonomic level
+
+```{r}
+# Load taxonomy (optional, for annotation)
+taxonomy <- read_qza(taxonomy_path)$data
+
+glimpse(taxonomy)
+```
+
+::: callout-important
+Why are there still **"Unassigned"** ASVs?
+I thought I had filtered those out...
+should I do that now?
+Or would that skew the sample similarity?
+I think it could skew sample similarity analysis so I'll leave it in...
+but flag this to ask Dr. Steve Salipante or Dr. Amy Van Cise ....
+:::
+
+```{r}
+# Display data dimensions
+cat("Feature table dimensions:", dim(feature_table), "\n")
+cat("Number of samples in metadata:", nrow(meta), "\n")
+```
+
+## Prepare data for analysis
+
+```{r}
+# Convert feature table to matrix (samples as rows, features as columns)
+# QIIME2 format typically has features as rows, samples as columns
+feature_matrix <- as.matrix(feature_table)
+feature_matrix_t <- t(feature_matrix)  # Transpose so samples are rows
+
+# Ensure sample IDs match between feature table and metadata
+sample_ids <- rownames(feature_matrix_t)
+meta_filt <- meta %>%
+  filter(sample_id %in% sample_ids) %>%
+  arrange(match(sample_id, sample_ids))
+
+cat("Samples in feature table:", nrow(feature_matrix_t), "\n")
+cat("Samples in metadata:", nrow(meta_filt), "\n")
+```
+
+# CLR Transformation
+
+The centered log-ratio (CLR) transformation converts compositional data to Euclidean space.
+It handles zeros by replacing them with small values (geometric Bayesian multiplicative replacement).
+
+```{r}
+# Replace zeros with small values using cmultRepl from zCompositions
+# This is necessary because log transformation is undefined for zeros
+feature_matrix_nozero <- cmultRepl(feature_matrix_t, method = "CZM", label = 0)
+
+# Apply CLR transformation
+feature_clr <- clr(feature_matrix_nozero)
+
+# Convert to data frame for easier handling
+feature_clr_df <- as.data.frame(feature_clr)
+
+write_csv(feature_clr_df, "../../output/CLR_feature_table.csv")
+
+
+cat("CLR-transformed data dimensions:", dim(feature_clr_df), "\n")
+head(feature_clr_df[, 1:5])
+```
+
+# Aitchison Distance is a Beta Diversity metric for compositional data
+
+The Aitchison distance is the Euclidean distance between samples after CLR transformation.
+This is the appropriate distance metric for compositional data.
+
+```{r}
+# Calculate Aitchison distance (Euclidean distance on CLR-transformed data)
+aitchison_dist <- dist(feature_clr, method = "euclidean")
+
+# Display distance matrix summary
+cat("Aitchison distance matrix summary:\n")
+summary(as.vector(aitchison_dist))
+```
+
+# PCA Biplots
+
+Variance-based compositional PCA on CLR transformed feature table.
+
+## Perform PCA
+
+```{r}
+# Perform PCA on CLR transformed feature table 
+pca_result <- prcomp(feature_clr, scale. = FALSE)
+
+# Calculate variance explained
+variance_explained <- summary(pca_result)$importance[2, ] * 100
+
+# Create data frame for plotting
+pca_df <- data.frame(
+  PC1 = pca_result$x[, 1],
+  PC2 = pca_result$x[, 2],
+  sample_id = rownames(feature_clr)
+)
+
+# Merge with metadata
+pca_df <- pca_df %>%
+  left_join(meta_filt, by = "sample_id")
+```
+
+## Plot stage x leachate x cross
+
+```{r, fig.height=6}
+pca_plot_cross <- ggplot(
+  pca_df,
+  aes(
+    x = PC1, y = PC2,
+    fill = stage,                   # inside color
+    colour = factor(parents),       # outline color
+    shape = leachate                # shape must be 21–25
+  )
+) +
+  coord_equal()+
+  geom_point(size = 3.5, stroke = 1.5, alpha = 0.8) +   # stroke controls outline width
+  scale_shape_manual(values = c(21, 22, 23, 24, 25)[seq_along(levels(pca_df$leachate))]) +
+  # light grey -> dark grey for discrete stages (shows in legend)
+  scale_fill_grey(name = "Stage", start = 0.1, end = 1) +
+  labs(
+    title = "PCA of CLR transformed  by Stage, Leachate, and Parental cross",
+    x = paste0("PC1 (", round(variance_explained[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(variance_explained[2], 2), "% variance)"),
+    shape = "Leachate",
+    color = "Parental cross"
+  ) +
+  theme_sleek_axe() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5)
+  )+
+  # 3) make the fill legend draw a filled shape with an outline
+  guides(
+    shape  = guide_legend(order = 1),
+    fill   = guide_legend(override.aes = list(shape = 21, stroke = 1.1, colour = "black"), 
+                          order = 2),
+    colour = guide_legend(order = 3)
+    
+  ) 
+
+pca_plot_cross
+
+# Save plot
+ggsave("../../output/compositional_pca_cross.png", pca_plot_cross, 
+       width = 10, height = 7, dpi = 300)
+```
+
+## Plot stage x leachate x spawn night
+
+```{r, fig.height=6}
+pca_plot_spawn_night <- ggplot(
+  pca_df,
+  aes(
+    x = PC1, y = PC2,
+    fill = stage,                   # inside color
+    colour = factor(spawn_night),       # outline color
+    shape = leachate                # shape must be 21–25
+  )
+) +
+  coord_equal()+
+  geom_point(size = 3.5, stroke = 1.5, alpha = 0.8) +   # stroke controls outline width
+  scale_shape_manual(values = c(21, 22, 23, 24, 25)[seq_along(levels(pca_df$leachate))]) +
+  # light grey -> dark grey for discrete stages (shows in legend)
+  scale_fill_grey(name = "Stage", start = 0.1, end = 1) +
+  labs(
+    title = "PCA of all ASVs by Stage, Leachate, and Spawn night",
+    x = paste0("PC1 (", round(variance_explained[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(variance_explained[2], 2), "% variance)"),
+    shape = "Leachate",
+    color = "Spawn night"
+  ) +
+  theme_sleek_axe() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5)
+  )+
+  # 3) make the fill legend draw a filled shape with an outline
+  guides(
+    shape  = guide_legend(order = 1),
+    fill   = guide_legend(override.aes = list(shape = 21, stroke = 1.1, colour = "black"), 
+                          order = 2),
+    colour = guide_legend(order = 3)
+    
+  ) 
+
+pca_plot_spawn_night
+
+# Save plot
+ggsave("../../output/compositional_pca_spawn_night.png", pca_plot_spawn_night, 
+       width = 10, height = 7, dpi = 300)
+```
+
+## Interactive plotly
+
+::: callout-note
+This will only display in html format
+:::
+
+```{r, echo = knitr::is_html_output(), eval = knitr::is_html_output()}
+library(ggplot2)
+library(plotly)
+
+# add a tooltip aesthetic to your existing ggplot
+pca_plot_hpf <- ggplot(
+  pca_df,
+  aes(
+    x = PC1, y = PC2,
+    fill = stage,                    # inside color
+    colour = factor(parents),        # outline color
+    shape = leachate,                # shape must be 21–25
+    text = paste0(
+      "Stage: ", stage,
+      "<br>Leachate: ", leachate,
+      "<br>Parent: ", parents
+    )
+  )
+) +
+  coord_equal()+
+  geom_point(size = 3.5, stroke = 1.5, alpha = 0.8) +
+  scale_shape_manual(values = c(21, 22, 23, 24, 25)[seq_along(levels(pca_df$leachate))]) +
+  scale_fill_grey(name = "Stage", start = 0.1, end = 1) +
+  labs(
+    title = "PCA of all OTUs by Stage, Leachate, and Parental cross",
+    x = paste0("PC1 (", round(variance_explained[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(variance_explained[2], 2), "% variance)"),
+    shape = "Leachate",
+    color = "Parental cross"
+  ) +
+  theme_sleek_axe() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5)
+  ) +
+  guides(
+    shape  = guide_legend(order = 1),
+    fill   = guide_legend(override.aes = list(shape = 21, stroke = 1.1, colour = "black"),
+                          order = 2),
+    colour = guide_legend(order = 3)
+  )
+
+# convert to plotly and use only the custom text in the tooltip
+pca_plot_hpf_interactive <- ggplotly(pca_plot_hpf, tooltip = "text")
+pca_plot_hpf_interactive
+
+```
+
+
+# PERMANOVA
+
+Here we run a PERMANOVA (Permutational Multivariate Analysis of Variance) on the Aitchison distance matrix to test for differences in microbial composition across experimental factors.
+
+-   **Strata** are groups within which to constrain permutations.
+    Using `strata = spawn night` controls for spawn night by constraining shuffles to within the spawn night groupings; this removes spawn night as a source of spurious differences.
+
+-   **Dispersion sensitivity**: PERMANOVA can flag significance if groups have different dispersions (spread), not just different centroids.
+    Consider checking with `betadisper` and `permutest`.
+
+-   Unbalanced designs / small strata: With blocking, you need enough replicates within each strata and across factor levels to allow permutations; otherwise p-values become conservative or unavailable.
+    **This is why we don't fit a betadispersion model to parental cross, there aren't enough replicates.**
+
+## Fit betadispr
+
+`betadisper` tests whether the within-group multivariate dispersion (spread) differs among groups.
+It’s the multivariate analogue of Levene’s test: it compares the distances of samples to their group centroid.
+
+What happens under the hood:
+
+-   Performs a PCoA on your distance matrix.
+-   Computes each group’s centroid in that ordination space.
+-   Calculates each sample’s distance to its group centroid.
+-   Stores those distances for downstream tests/plots.
+
+Define groups to test
+
+```{r}
+grp_leachate <- meta_filt$leachate
+grp_stage    <- meta_filt$stage     
+grp_int    <- interaction(meta_filt$leachate, meta_filt$stage)
+grp_night <- meta_filt$spawn_night
+```
+
+### night
+
+```{r perm-test}
+set.seed(02192026)
+# Fit beta dispersion model 
+bd_night <- betadisper(aitchison_dist, group = grp_night, type = "centroid")
+
+# Permutation test with no blocking
+perm_night <- permutest(bd_night, permutations = 999, pairwise = FALSE)
+
+# Result
+perm_night
+```
+
+::: callout-note
+multivariate dispersion differs across spawn nights (groups = nights).
+In other words, samples from some nights are more spread out around their night-specific centroid than others.
+
+A permutation test for homogeneity of multivariate dispersions revealed a significant difference in dispersion among groups ( F2,60=6.29F_{2,60} = 6.29F2,60​=6.29, p=0.003p = 0.003p=0.003, 999 permutations), indicating that within-group variability in multivariate distance to centroid differed across nights.
+
+betadisper with group = spawn_night significant heterogeneous dispersion among nights.
+If your primary tests are leachate/stage, treat night as a nuisance: block by night in PERMANOVA (strata = spawn_night) so permutations happen within each night.
+This keeps night-to-night variance/dispersion from inflating your p-values for treatment effects.
+:::
+
+```{r pca-plot}
+plot(bd_night, hull = TRUE, ellipse = TRUE, label = FALSE, cex = 0.8)
+```
+
+In a betadisper object, the sample coordinates are in `bd_night$vectors` and the group centroids are in `bd_night$centroids`.
+You can extract these for custom plotting or further analysis.
+`chull()` is a function convex hull that finds the outermost points that form the smallest convex polygon around a set of points, which is useful for visualizing group dispersion in ordination plots, wrapped in `slice()` which keeps only the rows corresponding to those hull points for each group.
+
+
+```{r night-pcoa, fig.width=6, fig.height=4}
+# sample scores (vectors)
+bd_night_df <- as.data.frame(bd_night$vectors[, 1:2])
+bd_night_df$group <- bd_night$group
+
+# centroid scores
+bd_night_centroids <- as.data.frame(bd_night$centroids[, 1:2])
+bd_night_centroids$group <- factor(rownames(bd_night_centroids), levels = levels(bd_night$group))
+
+# axis labels with %variance explained
+eig <- bd_night$eig
+pct <- eig / sum(eig) * 100
+xlab <- sprintf("PCoA 1 (%.1f%%)", pct[1])
+ylab <- sprintf("PCoA 2 (%.1f%%)", pct[2])
+
+# hulls
+hulls <- bd_night_df %>%
+  group_by(group) %>%
+  slice(chull(PCoA1, PCoA2))
+
+# force consistent factor levels across spawn night
+unique(bd_night_df$group)
+names(night.colors.alt)
+
+lvls <- levels(factor(bd_night_df$group))
+
+bd_night_df <- bd_night_df %>% mutate(group = factor(group, levels = lvls))
+hulls <- hulls %>% mutate(group = factor(group, levels = lvls))
+bd_night_centroids <- bd_night_centroids %>% mutate(group = factor(group, levels = lvls))
+
+# plot
+bd_night_plot <- ggplot(bd_night_df, aes(PCoA1, PCoA2, color = group)) +
+                      geom_point(alpha = 0.85) +
+                      geom_polygon(
+                        data = hulls,
+                        aes(fill = group),
+                        alpha = 0.2,
+                        color = NA,
+                        show.legend = FALSE
+                      ) +
+                      geom_point(
+                        data = bd_night_centroids,
+                        shape = 4
+                      ) +
+                      stat_ellipse(level = 0.68) +
+                      coord_equal() +
+                     scale_x_continuous(
+                      breaks = c(-30, 0, 30)
+                    ) +
+                    scale_y_continuous(
+                      breaks = c(-20, 0, 20)
+                    ) +
+                      scale_color_manual(values = night.colors) +
+                      scale_fill_manual(values = night.colors) +
+                      theme_sleek_axe() +
+                      labs(
+                        title = "Spawn Night",
+                        x = xlab,
+                        y = ylab,
+                        color = "spawn night"
+                      )
+
+geom_defaults()
+bd_night_plot
+ggsave(
+  "../../figs/betadisp_night.png",
+  width=6,
+  height=4, 
+  dpi=600,
+  plot=bd_night_plot
+)
+```
+
+```{r night-pptx, fig.width=16, fig.height=9}
+geom_pptx()
+betadisp_night_pptx <- bd_night_plot + theme_pptx()
+betadisp_night_pptx
+ggsave(
+  "../../figs/betadisp_night_pptx.png",
+  width=16,
+  height=9,
+  dpi=600,
+  plot=betadisp_night_pptx
+)
+```
+
+### leachate
+
+```{r}
+set.seed(02192026)
+bd_leachate <- betadisper(aitchison_dist, group = grp_leachate, type = "centroid")
+
+# Permutation test with optional blocking
+perm_leachate <- permutest(bd_leachate, permutations = 999, pairwise = FALSE,
+                  strata = meta_filt$spawn_night)  # optional
+perm_leachate
+```
+
+::: callout-note
+A permutation test for homogeneity of multivariate dispersions revealed no significant difference in dispersion across leachate (*F*~3,59~ = 0.1393, *p* = 0.939, 999 permutations)
+:::
+
+What this tests: Null hypothesis (Ho): all groups have equal average distance-to-centroid (equal dispersion/variance).If p \< 0.05, at least one group is more/less dispersed than another.
+Why use the permutation test?
+The distances depend on the PCoA, so permutation is safer than the plain ANOVA F-test.
+
+```{r}
+plot(bd_leachate, hull = TRUE, ellipse = TRUE, label = FALSE, cex = 0.8)
+```
+
+```{r leachate-pcoa}
+# sample scores (vectors)
+bd_leachate_df <- as.data.frame(bd_leachate$vectors[, 1:2])
+bd_leachate_df$group <- bd_leachate$group
+
+# centroid scores
+bd_leachate_centroids <- as.data.frame(bd_leachate$centroids[, 1:2])
+bd_leachate_centroids$group <- factor(rownames(bd_leachate_centroids), levels = levels(bd_leachate$group))
+
+# axis labels with %variance explained
+eig <- bd_leachate$eig
+pct <- eig / sum(eig) * 100
+xlab <- sprintf("PCoA 1 (%.1f%%)", pct[1])
+ylab <- sprintf("PCoA 2 (%.1f%%)", pct[2])
+
+# hulls
+hulls <- bd_leachate_df %>%
+  group_by(group) %>%
+  slice(chull(PCoA1, PCoA2))
+
+# force consistent factor levels across leachate
+unique(bd_leachate_df$group)
+names(leachate.colors)
+
+lvls <- levels(factor(bd_leachate_df$group))
+
+bd_leachate_df <- bd_leachate_df %>% mutate(group = factor(group, levels = lvls))
+hulls <- hulls %>% mutate(group = factor(group, levels = lvls))
+bd_leachate_centroids <- bd_leachate_centroids %>% mutate(group = factor(group, levels = lvls))
+
+
+# plot
+bd_leachate_plot <- ggplot(bd_leachate_df, aes(PCoA1, PCoA2, color = group)) +
+                            geom_polygon(
+                              data = hulls,
+                              aes(fill = group),
+                              alpha = 0.2,
+                              color = NA,
+                              show.legend = FALSE
+                            ) +
+                            geom_point(
+                              data = bd_leachate_centroids,
+                              shape = 4
+                            ) +
+                            stat_ellipse(level = 0.68) +
+                            geom_point(alpha=0.85)+
+                            coord_equal() +
+                             scale_x_continuous(
+                              breaks = c(-30, 0, 30)
+                            ) +
+                            scale_y_continuous(
+                              breaks = c(-20, 0, 20)
+                            ) +
+                            scale_color_manual(values = leachate.colors) +
+                            scale_fill_manual(values = leachate.colors) +
+                            theme_sleek_axe() +
+                            labs(
+                              title = "Leachate",
+                              x = xlab,
+                              y = ylab,
+                              color = "leachate"
+                            )
+
+geom_defaults()
+bd_leachate_plot
+ggsave(
+  "../../figs/betadisp_leachate.png",
+  width=6,
+  height=4,
+  dpi=600,
+  plot=bd_leachate_plot
+)
+```
+
+```{r leachate-pptx, fig.width=16, fig.height=9}
+geom_pptx()
+betadisp_leachate_pptx <- bd_leachate_plot + theme_pptx()
+betadisp_leachate_pptx
+ggsave(
+  "../../figs/betadisp_leachate_pptx.png",
+  width=16, 
+  height=9,
+  dpi=600,
+  plot=betadisp_leachate_pptx
+)
+```
+
+### stage
+
+```{r}
+set.seed(02192026)
+bd_stage <- betadisper(aitchison_dist, group = grp_stage, type = "centroid")
+
+# Permutation test with optional blocking
+perm_stage <- permutest(bd_stage, permutations = 999, pairwise = FALSE)
+                  #strata = meta_filt$spawn_night)  # optional
+perm_stage
+```
+
+::: callout-note
+A permutation test for homogeneity of multivariate dispersions revealed no significant difference in dispersion across stage (*F*~2,60~ = 1.0498, *p* = 0.359, 999 permutations)
+:::
+
+```{r}
+plot(bd_stage, hull = TRUE, ellipse = TRUE, label = FALSE, cex = 0.8)
+```
+
+```{r stage-pcoa}
+
+# sample scores (vectors)
+bd_stage_df <- as.data.frame(bd_stage$vectors[, 1:2])
+bd_stage_df$group <- bd_stage$group
+
+# centroid scores
+bd_stage_centroids <- as.data.frame(bd_stage$centroids[, 1:2])
+bd_stage_centroids$group <- factor(rownames(bd_stage_centroids), levels = levels(bd_stage$group))
+
+# axis labels with %variance explained
+eig <- bd_stage$eig
+pct <- eig / sum(eig) * 100
+xlab <- sprintf("PCoA 1 (%.1f%%)", pct[1])
+ylab <- sprintf("PCoA 2 (%.1f%%)", pct[2])
+
+# hulls
+hulls <- bd_stage_df %>%
+  group_by(group) %>%
+  slice(chull(PCoA1, PCoA2))
+
+# force consistent factor levels across stage
+unique(bd_stage_df$group)
+names(stage.3.colors)
+
+lvls <- levels(factor(bd_stage_df$group))
+
+bd_stage_df <- bd_stage_df %>% mutate(group = factor(group, levels = lvls))
+hulls <- hulls %>% mutate(group = factor(group, levels = lvls))
+bd_stage_centroids <- bd_stage_centroids %>% mutate(group = factor(group, levels = lvls))
+
+# plot
+bd_stage_plot <- ggplot(bd_stage_df, aes(PCoA1, PCoA2, color = group)) +
+  geom_point(alpha = 0.85) +
+  geom_polygon(
+    data = hulls,
+    aes(fill = group),
+    alpha = 0.2,
+    color = NA,
+    show.legend = FALSE
+  ) +
+  geom_point(
+    data = bd_stage_centroids,
+    shape = 4
+  ) +
+  stat_ellipse(level = 0.68, linewidth = 0.8) +
+  coord_equal() +
+   scale_x_continuous(
+    breaks = c(-30, 0, 30)
+  ) +
+  scale_y_continuous(
+    breaks = c(-20, 0, 20)
+  ) +
+  scale_color_manual(values = stage.3.colors) +
+  scale_fill_manual(values = stage.3.colors) +
+  theme_sleek_axe() +
+  guides(
+    color = guide_legend(reverse = TRUE),
+    fill = guide_legend(reverse = TRUE)
+  )+
+  labs(
+    title = "Stage",
+    x = xlab,
+    y = ylab,
+    color = "stage"
+  )
+
+geom_defaults()
+bd_stage_plot
+ggsave(
+  "../../figs/betadisp_stage.png",
+  width=6,
+  height=4,
+  dpi=600,
+  plot=bd_stage_plot
+)
+```
+
+```{r stage-pptx, fig.width=16, fig.height=9}
+geom_pptx()
+betadisp_stage_pptx <- bd_stage_plot + theme_pptx()
+betadisp_stage_pptx
+ggsave(
+  "../../figs/betadisp_stage_pptx.png",
+  width=16, 
+  height=9, 
+  dpi=600,
+  plot=betadisp_stage_pptx
+)
+```
+
+
+
+### leachate x stage
+
+```{r}
+set.seed(02192026)
+bd_int <- betadisper(aitchison_dist, group = grp_int, type = "centroid")
+
+# Permutation test with optional blocking
+perm_int <- permutest(bd_int, permutations = 999, pairwise = FALSE)
+                  #strata = meta_filt$spawn_night)  # optional
+perm_int
+```
+
+::: callout-note
+A permutation test for homogeneity of multivariate dispersions revealed no significant difference in dispersion across the interaction between leachate and stage (*F*~11,51~ = 0.3491, *p* = 0.971, 999 permutations)
+:::
+
+```{r}
+plot(bd_int, hull = TRUE, ellipse = TRUE, label = FALSE, cex = 0.8)
+```
+
+```{r}
+# sample scores (vectors)
+bd_int_df <- as.data.frame(bd_int$vectors[, 1:2])
+bd_int_df$group <- bd_int$group
+
+# centroid scores
+bd_int_centroids <- as.data.frame(bd_int$centroids[, 1:2])
+bd_int_centroids$group <- factor(rownames(bd_int_centroids), levels = levels(bd_int$group))
+
+# axis labels with %variance explained
+eig <- bd_int$eig
+pct <- eig / sum(eig) * 100
+xlab <- sprintf("PCoA 1 (%.1f%%)", pct[1])
+ylab <- sprintf("PCoA 2 (%.1f%%)", pct[2])
+
+# hulls
+hulls <- bd_int_df %>%
+  group_by(group) %>%
+  slice(chull(PCoA1, PCoA2))
+
+# plot
+ggplot(bd_int_df, aes(PCoA1, PCoA2, color = group)) +
+  geom_point(size = 2.6, alpha = 0.85) +
+  geom_polygon(data = hulls, aes(fill = group), alpha = 0.18, color = NA, show.legend = FALSE) +
+  geom_point(data = bd_int_centroids, shape = 4, stroke = 1.2, size = 5) +
+  stat_ellipse(level = 0.68, linewidth = 0.8) +
+  coord_equal() +
+  theme_minimal(base_size = 14) +
+  labs(title = "betadisper (int)", x = xlab, y = ylab, color = "int")
+```
+
+## Perform PERMANOVA
+
+PERMANOVA mainly tests centroid location differences among groups (i.e., group separation).
+
+betadisper tests dispersion (variance) differences among groups.
+
+If PERMANOVA is significant and betadisper is non-significant, the signal likely reflects location (good).
+
+If both are significant, some of the PERMANOVA “difference” could be due to dispersion heterogeneity (groups with different spreads).
+Report both, and interpret cautiously.
+
+> In adonis2, the strata argument restricts permutations to occur within levels of the strata variable (here, spawn night).
+> This controls for the grouping effect by ensuring samples are only permuted among others within the same spawn night, which accounts for the non-independence of samples collected on the same night when calculating significance of other factors.
+> `adonis2` does not currently support specifying random effects in the model formula like mixed models do.
+> So you cannot directly include spawn night as a random effect.Using strata is a practical approach to avoid inflating Type I error due to pseudoreplication or clustering of samples within levels of spawn night and tests effects of leachate and stage while controlling for spawn night as a grouping factor.
+
+```{r}
+set.seed(02192026)
+# Perform PERMANOVA on Aitchison distance
+# Test effects of leachate, stage, and their interaction (blocking permutations by spawn night)
+permanova_int.stage <- adonis2(
+  aitchison_dist ~ leachate * stage,
+  data = meta_filt,
+  permutations = 999,
+  by = "terms",
+  strata = meta_filt$spawn_night
+)
+
+print(permanova_int.stage)
+
+# Save results
+write.csv(as.data.frame(permanova_int.stage), 
+          "../../output/permanova/perm_result_int.stage.csv",
+          row.names = TRUE)
+```
+
+```{r}
+set.seed(02192026)
+# Additional PERMANOVA treating stage as continuous time 
+permanova_int.hpf <- adonis2(
+  aitchison_dist ~ leachate * hpf,
+  data = meta_filt,
+  permutations = 999,
+  by = "terms",
+  strata = meta_filt$spawn_night # control for parental cross
+)
+
+print(permanova_int.hpf)
+
+# Save results
+write.csv(as.data.frame(permanova_int.hpf), 
+          "../../output/permanova/perm_result_int.hpf.csv",
+          row.names = TRUE)
+```
+
+Whether we use developmental stage (categorical factor) or hours post fertilization (continuous numerical) the results are the same...
+stage/hpf is significant and leachate and the interactions between leachate and stage/hpf are not.
+
+# Summary
+
+This analysis implemented the key recommendations from Gloor et al. 2017 for compositional microbiome data analysis:
+
+1.  **CLR Transformation**: Applied centered log-ratio transformation to convert compositional data to Euclidean space
+2.  **Aitchison Distance**: Calculated Euclidean distance on CLR-transformed data as the appropriate dissimilarity metric
+3.  **PCA Biplot**: Created variance-based PCA visualizations on CLR-transformed data
+4.  **PERMANOVA**: Tested for significant differences in microbial composition across experimental factors
+
+
+```{r patch-plots, fig.width=5, fig.height=9}
+geom_defaults()
+bd_plots <- (bd_stage_plot / bd_night_plot / bd_leachate_plot) +
+  plot_annotation(tag_levels = "A") &
+  theme(
+    plot.tag = element_text(color = "grey30", size = 10),
+    legend.position = "right",
+    panel.spacing = unit(0.2, "lines")
+  ) +
+  plot_layout(guides = "collect", heights = c(1,1,1))
+
+bd_plots
+```
+Save combined plot
+
+```{r}
+ggsave("../../figs/betadisper_plots.png", plot = bd_plots, width = 5, height = 9, dpi = 900)
+```
+
+# PCoA on Aitchison distance (Euclidean distance on CLR-transformed data) with betadisper hulls and ellipses for spawn night, leachate, and stage.
+
+```{r}
+
+# PCoA
+ord <- ape::pcoa(aitchison_dist)
+
+scores <- as.data.frame(ord$vectors[,1:2]) %>% 
+  rename(PC1 = Axis.1, PC2 = Axis.2) %>%
+  mutate(sample_id = rownames(.)) %>%
+  left_join(meta_filt, by = "sample_id")
+
+eig <- ord$values$Relative_eig * 100
+
+spawnhulls <- scores %>%
+  group_by(spawn_night) %>%
+  slice(chull(PC1, PC2))
+```
+
+```{r pcoa-spawn}
+pcoa_spawn <- ggplot(scores, aes(PC1, PC2, color = spawn_night, fill = spawn_night)) +
+  geom_point(size = 4, alpha = 0.7) +
+  stat_ellipse(
+  aes(fill = spawn_night),
+  geom = "polygon",
+  level = 0.68,
+  alpha = 0.2,
+  color = NA, 
+  show.legend = FALSE
+) +
+stat_ellipse(
+  level = 0.68,
+  linewidth = 0.8, 
+  show.legend = FALSE
+)+
+  scale_color_manual(values = night.colors.alt) +
+  scale_fill_manual(values = night.colors.alt) +
+  labs(x = paste0("PC1 (", round(eig[1], 2), "%)"), 
+       y = paste0("PC2 (", round(eig[2], 2), "%)")) +
+  guides(fill = "none") +
+  coord_equal() +
+  
+  labs(
+    title = "Spawn Night",
+    x = xlab,
+    y = ylab,
+    color = "spawn night"
+  )+
+  
+  theme_sleek_axe()
+
+pcoa_spawn
+```
+
+```{r}
+pcoa_leachate <- ggplot(scores, aes(PC1, PC2, color = leachate, fill = leachate)) +
+  geom_point(size = 4, alpha = 0.7) +
+  stat_ellipse(
+  aes(fill = leachate),
+  geom = "polygon",
+  level = 0.68,
+  alpha = 0.2,
+  color = NA, 
+  show.legend = FALSE
+) +
+stat_ellipse(
+  level = 0.68,
+  linewidth = 0.8, 
+  show.legend = FALSE
+)+
+  scale_color_manual(values = leachate.colors) +
+  scale_fill_manual(values = leachate.colors) +
+  labs(x = paste0("PC1 (", round(eig[1], 2), "%)"), 
+       y = paste0("PC2 (", round(eig[2], 2), "%)")) +
+  guides(fill = "none") +
+  coord_equal() +
+  
+  labs(
+    title = "Leachate",
+    x = xlab,
+    y = ylab,
+    color = "leachate"
+  )+
+  
+  theme_sleek_axe()
+
+pcoa_leachate
+```
+
+```{r pcoa-stage}
+pcoa_stage <- ggplot(scores, aes(PC1, PC2, color = stage, fill = stage)) +
+  geom_point(size = 4, alpha = 0.7) +
+  stat_ellipse(
+  aes(fill = stage),
+  geom = "polygon",
+  level = 0.68,
+  alpha = 0.2,
+  color = NA, 
+  show.legend = FALSE
+) +
+stat_ellipse(
+  level = 0.68,
+  linewidth = 0.8, 
+  show.legend = FALSE
+)+
+  scale_color_manual(values = stage.3.colors) +
+  scale_fill_manual(values = stage.3.colors) +
+  labs(x = paste0("PC1 (", round(eig[1], 2), "%)"), 
+       y = paste0("PC2 (", round(eig[2], 2), "%)")) +
+  guides(fill = "none",
+         color = guide_legend(reverse = TRUE)) +
+  coord_equal() +
+  
+  labs(
+    title = "Stage",
+    x = xlab,
+    y = ylab,
+    color = "stage"
+  )+
+  
+  theme_sleek_axe()
+
+pcoa_stage
+```
+
+PCoA combined plots 
+```{r pcoa-combo, fig.width=5, fig.height=9}
+pcoa_combined <- (pcoa_spawn / pcoa_leachate / pcoa_stage) +
+  plot_annotation(tag_levels = "A", 
+                  title = "Principal Coordinates Analysis (PCoA) \nof Aitchison Beta Diversity") &
+  theme(
+    plot.tag = element_text(color = "grey60", size = 11),
+    plot.title = element_text(size = 14, color = "grey40", hjust = 0.5, margin = margin(b = 20)),
+    legend.position = "right",
+    panel.spacing = unit(0.2, "lines")
+  ) +
+  
+  plot_layout(guides = "collect", heights = c(1,1,1))
+
+pcoa_combined
+```
+
+```{r}
+ggsave("../../figs/pcoa_combined.png", plot = pcoa_combined, width = 5, height = 9, dpi = 900)
+```
+
+
+```{r save-patch-plot}
+ggsave("../../figs/betadisp_patched_plots.png", 
+       plot = bd_plots, 
+       width=5,
+       height = 9,
+       dpi = 900)
+```
+
+```{r}
+geom_defaults()
+bd_plots_pptx <- (bd_stage_plot / bd_night_plot / bd_leachate_plot) +
+  plot_annotation(tag_levels = "A") &
+  theme(
+    plot.tag = element_text(color = "grey30", size = 10),
+    legend.position = "right",
+    panel.spacing = unit(0.2, "lines")
+  ) +
+  plot_layout(guides = "collect", heights = c(1,1,1))
+
+bd_plots_pptx
+```
+
+## Key Findings
+
+-   PCA plots visually show clustering patterns by Developmental stage (aka timepoint/ hours post fertilization), Night of Spawn, and Parental cross (the later two are confounded)
+-   betadispersion results indicate significant difference in variance (dispersion) across night of spawn
+-   PERMANOVA results (blocked across Night of Spawn) indicate significant effects of Developmental stage (aka timepoint/ hours post fertilization), and non-significance for leachate and leahcate:stage interactions
+
+## Next Steps
+
+-   Differential abundance analysis (MaAslin3)
+-   Conduct PERMANOVA on differentially abundant taxa
+-   Functional annotation of differentially abundant taxa (picrust)
+-   Differential abundance of functions (functional enrichment) (MaAslin3)
+
+## Output Files
+
+All results and visualizations have been saved to the `../output/permanova` directory: - PCA biplots - PERMANOVA results tables
+
+# Session Info
+
+```{r}
+sessionInfo()
+```

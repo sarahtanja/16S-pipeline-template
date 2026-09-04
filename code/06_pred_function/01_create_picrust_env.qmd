@@ -1,0 +1,142 @@
+---
+title: "Create PICRUSt2 Environment in conda"
+author: "Sarah Tanja"
+date: 2026-05-03
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools: 
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = FALSE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "") # Prevents appending '##' to beginning of lines in code output)        
+```
+
+# Background
+
+[How does PICRUSt2 work? What does it do?](https://github.com/picrust/picrust2/wiki/How-does-PICRUSt2-work%3F-What-does-it-do%3F)
+
+> PICRUSt2 aims to predict the functional content of microbial communities based on amplicon/marker gene sequences. Very simply, PICRUSt2 takes information about which microbes are present in a sample and predicts what these microbes might be doing. PICRUSt2 compares the marker gene sequences from a sample to known genomes from similar microbes in order to predict the genes that are likely present and what functions they might perform.
+
+-   fasta formatted representative sequences (ASVs)
+
+-   feature table (tab-delimited) containing abundance of ASVs within samples
+
+::: callout-note
+Some advice from Dr. Steve Salipante
+
+> Yes it is reasonable to look at picrust output and see if there are functional shifts, but it is not clear how adequate picrust libraries are to allow metabolic inference of these particular populations.  I would recommend that the actual analysis of metabolic shifts be conducted in Maaslin, as before, to account for covariates.
+>
+> it is possible to give sarah the input files she would need for the analysis. \[see [https://forum.qiime2.org/t/picrust2-input-files-for-bacteria/27968](https://urldefense.com/v3/__https://forum.qiime2.org/t/picrust2-input-files-for-bacteria/27968__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwEJWtIM0$)\]. For the record, you could isolate the ASV table from DADA2 in qiime (these are stored in rep-seqs-dada2.qza, according to [https://forum.qiime2.org/t/how-to-generate-an-asv-table-from-dada2-output/9973](https://urldefense.com/v3/__https://forum.qiime2.org/t/how-to-generate-an-asv-table-from-dada2-output/9973__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwpWyxhvY$)), and convert it to biom format \[[https://forum.qiime2.org/t/how-to-generate-an-asv-table-from-dada2-output/9973/2](https://urldefense.com/v3/__https://forum.qiime2.org/t/how-to-generate-an-asv-table-from-dada2-output/9973/2__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwc-L0gtk$)\]. 
+>
+> having said this it may just be easier to use the picrust2 plugin for qiime and hand over those outputs, since we already have the inputs ready in qiime
+>
+> [https://github.com/picrust/picrust2/wiki/q2-picrust2-Tutorial](https://urldefense.com/v3/__https://github.com/picrust/picrust2/wiki/q2-picrust2-Tutorial__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwVcNVfvQ$)
+>
+> [https://github.com/picrust/picrust2/wiki/Manually-install-QIIME-2-plugin](https://urldefense.com/v3/__https://github.com/picrust/picrust2/wiki/Manually-install-QIIME-2-plugin__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwAif4ef0$)\
+> \
+> id say generate those outputs and then run them through maaslin to look for significant feature abundances. -- S.S.
+:::
+
+# Setup
+
+# Load libraries
+
+```{r, eval=TRUE}
+library(reticulate)
+library(tidyverse)
+library(qiime2R)
+```
+
+# Install miniconda
+
+Installation instruction for miniconda are [here](https://www.anaconda.com/docs/getting-started/miniconda/install#linux) - create a new directory named "miniconda3" in your home directory. - download the Linux Miniconda installation script for your chosen chip architecture and save the script as miniconda.sh in the miniconda3 directory. - run the miniconda.sh installation script in silent mode using bash. - remove the miniconda.sh installation script file after installation is complete.
+
+Run in terminal:
+
+```         
+mkdir -p ~/miniconda3
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh
+bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+rm ~/miniconda3/miniconda.sh
+```
+
+Verify the location of miniconda3
+
+```         
+ls -ld ~/miniconda3
+```
+
+Check the version
+
+```         
+$HOME/miniconda3/bin/conda --version
+```
+
+> 25.3.1
+
+After installing Miniconda, you have to initialize conda for bash
+
+```         
+$HOME/miniconda3/bin/conda init bash
+```
+
+Close terminal and re-open
+
+```         
+source ~/.bashrc
+```
+
+make sure you're running the latest version of `conda`.
+
+```         
+conda update conda
+```
+
+accept terms of service
+
+# Install Picrust as a conda environment
+
+[Install from bioconda](https://github.com/picrust/picrust2/wiki/Installation#:~:text=Install%20from%20bioconda)
+
+Check conda envs: 
+```
+conda env list
+```
+Get into the base conda env:
+```
+conda activate base
+```
+create picrust conda env:
+```
+mamba create -n picrust2 -c bioconda -c conda-forge picrust2=2.6.2
+```
+
+
+```{r sessionInfo}
+sessionInfo()
+```

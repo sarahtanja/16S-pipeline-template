@@ -1,0 +1,239 @@
+# Understanding Maaslin2 Model Design and Results Interpretation
+
+**Additive vs. Interaction Effects in Differential Abundance Analysis**
+
+Sarah Tanja  
+Date: 2025-10-15
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Current Model Design](#current-model-design)
+3. [Interpreting the Results](#interpreting-the-results)
+4. [Adding an Interaction Term](#adding-an-interaction-term)
+5. [Recommendations](#recommendations)
+6. [Summary](#summary)
+7. [References](#references)
+
+## Overview
+
+This document explains the Maaslin2 model design used in the coral embryo microbiome analysis and how to interpret the results in `salipante/Sarah_StonyCoral/Level7_filtered_organism_output/significant_results.tsv`.
+
+## Current Model Design
+
+The Maaslin2 analysis was run with the following specification:
+
+```r
+fit_Level7_filtered_data = Maaslin2(
+  input_data = df_Level7_filtered_data, 
+  input_metadata = df_Level7_filtered_metadata, 
+  min_prevalence = 0.05, 
+  min_abundance = 0.001, 
+  normalization = "NONE", 
+  output = "Level7_filtered_organism_output", 
+  fixed_effects = c("leachate", "timepoint"), 
+  random_effects = c("cross")
+)
+```
+
+### What This Model Tests
+
+This is an **additive model** that can be written as:
+
+```
+Abundance ~ leachate + timepoint + (1|cross)
+```
+
+This model tests:
+
+1. **Main effect of leachate**: Does leachate concentration affect bacterial abundance, averaging across all timepoints?
+2. **Main effect of timepoint**: Does developmental time affect bacterial abundance, averaging across all leachate treatments?
+3. **Random effect of cross**: Accounts for correlation among samples from the same parental cross
+
+### What This Model Does NOT Test
+
+The current model does **NOT** test for interaction effects between leachate and timepoint. An interaction would answer the question: "Does the effect of leachate depend on the timepoint (or vice versa)?"
+
+## Interpreting the Results
+
+### Result File Structure
+
+The `significant_results.tsv` file contains these columns:
+
+- `feature`: Bacterial taxon (from kingdom to species level)
+- `metadata`: Which variable shows a significant effect (`leachate` or `timepoint`)
+- `value`: Redundant with metadata column (same value)
+- `coef`: Coefficient (effect size) - the change in log-transformed abundance per unit increase in the predictor
+- `stderr`: Standard error of the coefficient
+- `N`: Total number of samples
+- `N.not.0`: Number of samples where the taxon is present
+- `pval`: P-value
+- `qval`: FDR-adjusted q-value
+
+### Understanding the Coefficients
+
+#### For Timepoint Effects
+
+**Example:** `d__Bacteria.p__Proteobacteria.c__Gammaproteobacteria.o__Alteromonadales.f__Pseudoalteromonadaceae.g__Algicola.s__uncultured_bacterium`
+- `metadata = timepoint`
+- `coef = 1.66`
+
+**Interpretation:** For each 1-hour increase in developmental time, this bacterium's log-abundance increases by 1.66, **averaged across all leachate concentrations**. This is a positive association with developmental time.
+
+Since timepoints are measured at 4, 9, and 14 hours post fertilization (hpf):
+- From 4 to 9 hpf (5 hours): expected log-abundance change = 1.66 × 5 = 8.3
+- From 9 to 14 hpf (5 hours): expected log-abundance change = 1.66 × 5 = 8.3
+
+#### For Leachate Effects
+
+**Example:** `d__Bacteria.p__Proteobacteria.c__Alphaproteobacteria.o__Rhodobacterales.f__Rhodobacteraceae.g__Cognatishimia.s__uncultured_bacterium`
+- `metadata = leachate`
+- `coef = -0.59`
+
+**Interpretation:** For each 1-unit increase in leachate concentration, this bacterium's log-abundance decreases by 0.59, **averaged across all timepoints**. This is a negative association with leachate.
+
+Since leachate concentrations are 0, 0.01, 0.1, and 1:
+- From 0 to 0.01: expected log-abundance change = -0.59 × 0.01 = -0.006
+- From 0 to 0.1: expected log-abundance change = -0.59 × 0.1 = -0.059
+- From 0 to 1.0: expected log-abundance change = -0.59 × 1.0 = -0.59
+
+### Key Points About "Averaging"
+
+When we say the model averages across timepoints (for leachate effects) or across leachate concentrations (for timepoint effects), this means:
+
+1. **The coefficient represents an overall trend** across the other variable
+2. **We cannot determine** from these results:
+   - Which specific leachate concentration(s) drive the difference
+   - Which specific timepoint(s) drive the difference
+   - Whether the effect of leachate differs at different timepoints
+
+### What the Results Tell Us
+
+From the 732 significant results:
+
+- **607 bacteria show significant timepoint effects**: Their abundance changes with developmental stage (4, 9, or 14 hpf), regardless of leachate treatment
+- **125 bacteria show significant leachate effects**: Their abundance changes with leachate concentration (0, 0.01, 0.1, or 1), regardless of developmental stage
+
+## Adding an Interaction Term
+
+### Why Consider an Interaction?
+
+An interaction term would test whether the effect of leachate depends on the developmental timepoint. For example:
+
+- Does leachate have a stronger effect on bacterial communities at early stages (4 hpf) vs. later stages (14 hpf)?
+- Do certain bacteria only respond to leachate at specific developmental windows?
+
+### Modified Model with Interaction
+
+To test for interaction effects, modify the model as:
+
+```r
+fit_Level7_filtered_data = Maaslin2(
+  input_data = df_Level7_filtered_data, 
+  input_metadata = df_Level7_filtered_metadata, 
+  min_prevalence = 0.05, 
+  min_abundance = 0.001, 
+  normalization = "NONE", 
+  output = "Level7_filtered_organism_output_interaction", 
+  fixed_effects = c("leachate", "timepoint", "leachate:timepoint"), 
+  random_effects = c("cross")
+)
+```
+
+This tests:
+
+```
+Abundance ~ leachate + timepoint + leachate × timepoint + (1|cross)
+```
+
+The results would then include:
+- Main effect of leachate
+- Main effect of timepoint
+- **Interaction effect** (leachate:timepoint)
+
+### Interpreting Interaction Results
+
+If a bacterium shows a significant interaction term:
+
+- The effect of leachate **varies by timepoint** (or equivalently, the effect of timepoint varies by leachate)
+- You would need to look at the specific combinations to understand the pattern
+- Example: Leachate might decrease a bacterium at 4 hpf but increase it at 14 hpf
+
+## Recommendations
+
+### For Current Results
+
+When interpreting the existing `significant_results.tsv`:
+
+1. **For timepoint effects**: These bacteria show developmental changes that are consistent across leachate treatments
+2. **For leachate effects**: These bacteria respond to leachate in a way that is consistent across developmental stages
+3. **Loss of granularity**: You correctly noted that we cannot determine which specific leachate concentration or timepoint drives the effect from these results alone
+
+### To Gain More Insight
+
+Consider these approaches:
+
+#### 1. Post-hoc Comparisons
+
+Examine the data for specific bacteria of interest:
+- Plot abundance profiles across timepoints for each leachate level
+- Conduct pairwise comparisons between specific groups (e.g., 0 vs 1 leachate at 14 hpf)
+
+#### 2. Run Model with Interaction Term
+
+Add the interaction term as shown above to explicitly test whether effects differ across conditions
+
+#### 3. Treat Variables as Categorical
+
+Consider running Maaslin2 with leachate and timepoint as categorical factors:
+
+```r
+# Convert to factors in metadata
+df_Level7_filtered_metadata$leachate <- as.factor(df_Level7_filtered_metadata$leachate)
+df_Level7_filtered_metadata$timepoint <- as.factor(df_Level7_filtered_metadata$timepoint)
+
+fit_Level7_filtered_data = Maaslin2(
+  input_data = df_Level7_filtered_data, 
+  input_metadata = df_Level7_filtered_metadata, 
+  min_prevalence = 0.05, 
+  min_abundance = 0.001, 
+  normalization = "NONE", 
+  output = "Level7_filtered_organism_output_categorical", 
+  fixed_effects = c("leachate", "timepoint"), 
+  random_effects = c("cross"),
+  reference = c("leachate,0", "timepoint,4")  # Set reference levels
+)
+```
+
+This would give you:
+- Comparisons of each leachate level to the reference (e.g., 0.01 vs 0, 0.1 vs 0, 1 vs 0)
+- Comparisons of each timepoint to the reference (e.g., 9 vs 4, 14 vs 4)
+
+## Summary
+
+The current Maaslin2 analysis uses an **additive linear mixed model** that:
+
+✅ **Tests**: Whether bacteria show overall trends with leachate or timepoint  
+✅ **Accounts for**: Random variation among parental crosses  
+❌ **Does not test**: Whether leachate effects differ by timepoint (or vice versa)  
+❌ **Does not show**: Which specific leachate concentrations or timepoints drive differences  
+
+The results are valid but represent **average effects** across the other variable. To understand:
+- Which specific conditions drive differences → treat variables as categorical factors
+- Whether effects depend on each other → add interaction term
+- Specific bacterial responses → post-hoc visualization and pairwise testing
+
+## Model Comparison Guide
+
+| Model | Tests | Advantages | Limitations |
+|-------|-------|------------|-------------|
+| **Additive** | Main effects only | Simple interpretation, detects overall trends | Cannot detect condition-specific effects, averages across other variable |
+| **Interaction** | Main + interaction effects | Identifies whether effects depend on other variables | More complex interpretation, requires more samples |
+| **Categorical** | Pairwise comparisons | Shows which specific levels differ | Many comparisons (multiple testing), doesn't test for linear trends |
+
+## References
+
+For more on Maaslin2 and model interpretation:
+
+- Mallick H, et al. (2021). "Multivariable Association Discovery in Population-scale Meta-omics Studies." *PLOS Computational Biology*. https://doi.org/10.1371/journal.pcbi.1009442
+- Maaslin2 documentation: http://huttenhower.sph.harvard.edu/maaslin2

@@ -1,0 +1,873 @@
+---
+title: "PERMANOVA Analysis for Microbiome Data"
+subtitle: "Statistical Testing of Beta Diversity Patterns"
+author: "Sarah Tanja"
+date: 2025-10-17
+date-modified: today
+format:
+  gfm:
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools:
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+bibliography: "../../microbiome_bibtex.bib"
+editor:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = TRUE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "", # Prevents appending '##' to beginning of lines in code output
+  dev = "jpeg",
+  dpi = 600,
+  fig.retina = 2)        
+```
+
+# Background
+
+This document demonstrates how to perform **PERMANOVA** (Permutational Multivariate Analysis of Variance) on microbiome data from coral embryo development experiments. PERMANOVA tests whether microbial community composition differs significantly across experimental groups.
+
+For a comprehensive explanation of PERMANOVA theory, assumptions, and interpretation, see [`PERMANOVA_README.md`](PERMANOVA_README.md).
+
+## What is PERMANOVA?
+
+PERMANOVA is a **non-parametric multivariate statistical test** that:
+
+- Tests whether groups differ in their overall community composition
+- Works with distance/dissimilarity matrices (not raw data)
+- Uses permutation to assess significance (no parametric assumptions)
+- Partitions variation similar to ANOVA but for multivariate data
+
+## Key Points for Microbiome Analysis
+
+::: {.callout-important}
+## Important Distinctions
+
+1. **PERMANOVA tests distance matrices**, not PCA/PCoA coordinates
+2. **PCoA is for visualization only** - statistical tests use the underlying distance matrix
+3. **Check dispersion assumptions** before interpreting PERMANOVA results
+4. **Report effect sizes (R²)** not just p-values
+:::
+
+# Setup
+
+## Load Libraries
+
+```{r load-libraries}
+#| message: false
+#| warning: false
+
+# Core packages
+library(tidyverse)
+library(vegan)        # For PERMANOVA (adonis2) and PERMDISP (betadisper)
+library(qiime2R)      # For reading QIIME2 artifacts
+
+# Compositional data analysis
+library(compositions)
+library(zCompositions)
+
+# Visualization
+library(ggplot2)
+library(patchwork)
+library(viridis)
+
+# Session info
+cat("R version:", R.version.string, "\n")
+cat("vegan version:", as.character(packageVersion("vegan")), "\n")
+```
+
+## Set Paths
+
+```{r set-paths}
+# Paths to QIIME2 core metrics results
+core_metrics_path <- "../../salipante/241121_StonyCoral/core-metrics-results-filtered"
+metadata_path <- "../../metadata/metadata.csv"
+
+# Path to feature table for compositional analysis
+feature_table_path <- "../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza"
+
+# Output directory
+output_dir <- "../../output"
+figures_dir <- file.path(output_dir, "figures")
+
+# Create output directories if they don't exist
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(figures_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+## Load Metadata
+
+```{r load-metadata}
+metadata <- read_csv(metadata_path, show_col_types = FALSE)
+
+# Set factor levels for ordered analysis
+metadata <- metadata %>%
+  mutate(
+    stage = stage %>%
+      trimws() %>%
+      gsub("\\s+", "", .) %>%
+      factor(levels = c("cleavage", "prawnchip", "earlygastrula"), ordered = TRUE),
+    pvc_level = factor(leachate, levels = c(0, 0.01, 0.1, 1)),
+    timepoint_factor = factor(timepoint)
+  )
+
+# Display metadata structure
+cat("Metadata dimensions:", dim(metadata), "\n")
+cat("Number of samples:", nrow(metadata), "\n")
+cat("Treatment levels:", levels(metadata$pvc_level), "\n")
+cat("Developmental stages:", levels(metadata$stage), "\n")
+```
+
+# PERMANOVA on Pre-calculated Distance Matrices
+
+QIIME2 core metrics produces several beta diversity distance matrices. We'll run PERMANOVA on each to test for treatment and stage effects.
+
+## Bray-Curtis Dissimilarity
+
+Bray-Curtis is an abundance-based metric that doesn't account for phylogeny.
+
+```{r braycurtis-permanova}
+# Load Bray-Curtis distance matrix
+bc_dist_qza <- read_qza(file.path(core_metrics_path, "bray_curtis_distance_matrix.qza"))
+bc_dist <- as.dist(bc_dist_qza$data)
+
+# Ensure sample order matches metadata
+sample_order <- labels(bc_dist)
+metadata_bc <- metadata %>%
+  filter(SampleID %in% sample_order) %>%
+  arrange(match(SampleID, sample_order))
+
+cat("Samples in distance matrix:", length(sample_order), "\n")
+cat("Samples in metadata:", nrow(metadata_bc), "\n")
+
+# Check dispersion assumptions
+bc_disp_treatment <- betadisper(bc_dist, metadata_bc$pvc_level)
+bc_disp_stage <- betadisper(bc_dist, metadata_bc$stage)
+
+cat("\n=== Testing Homogeneity of Dispersions ===\n")
+cat("\nBy Treatment (PVC level):\n")
+bc_disp_perm_treatment <- permutest(bc_disp_treatment, permutations = 999)
+print(bc_disp_perm_treatment)
+
+cat("\nBy Developmental Stage:\n")
+bc_disp_perm_stage <- permutest(bc_disp_stage, permutations = 999)
+print(bc_disp_perm_stage)
+
+# Run PERMANOVA
+cat("\n=== PERMANOVA Results (Bray-Curtis) ===\n")
+bc_permanova <- adonis2(
+  bc_dist ~ pvc_level * stage,
+  data = metadata_bc,
+  permutations = 999,
+  by = "margin"  # Type III sums of squares
+)
+
+print(bc_permanova)
+
+# Save results
+write.csv(
+  as.data.frame(bc_permanova),
+  file.path(output_dir, "permanova_braycurtis_results.csv"),
+  row.names = TRUE
+)
+```
+
+::: {.callout-note}
+## Interpreting Bray-Curtis PERMANOVA
+
+- **Significant treatment effect** (p < 0.05) indicates leachate altered community composition
+- **R² value** shows proportion of variation explained by each factor
+- **Non-significant interaction** suggests treatment effects are consistent across stages
+:::
+
+## Jaccard Distance
+
+Jaccard is a presence/absence metric, sensitive to rare taxa.
+
+```{r jaccard-permanova}
+# Load Jaccard distance matrix
+jac_dist_qza <- read_qza(file.path(core_metrics_path, "jaccard_distance_matrix.qza"))
+jac_dist <- as.dist(jac_dist_qza$data)
+
+# Match metadata
+sample_order <- labels(jac_dist)
+metadata_jac <- metadata %>%
+  filter(SampleID %in% sample_order) %>%
+  arrange(match(SampleID, sample_order))
+
+# Check dispersions
+jac_disp_treatment <- betadisper(jac_dist, metadata_jac$pvc_level)
+jac_disp_stage <- betadisper(jac_dist, metadata_jac$stage)
+
+cat("\n=== Testing Homogeneity of Dispersions (Jaccard) ===\n")
+cat("\nBy Treatment:\n")
+print(permutest(jac_disp_treatment, permutations = 999))
+cat("\nBy Stage:\n")
+print(permutest(jac_disp_stage, permutations = 999))
+
+# PERMANOVA
+cat("\n=== PERMANOVA Results (Jaccard) ===\n")
+jac_permanova <- adonis2(
+  jac_dist ~ pvc_level * stage,
+  data = metadata_jac,
+  permutations = 999,
+  by = "margin"
+)
+
+print(jac_permanova)
+
+# Save results
+write.csv(
+  as.data.frame(jac_permanova),
+  file.path(output_dir, "permanova_jaccard_results.csv"),
+  row.names = TRUE
+)
+```
+
+## Weighted UniFrac
+
+Weighted UniFrac incorporates phylogenetic distances and abundance.
+
+```{r weighted-unifrac-permanova}
+# Load Weighted UniFrac distance matrix
+wuf_dist_qza <- read_qza(file.path(core_metrics_path, "weighted_unifrac_distance_matrix.qza"))
+wuf_dist <- as.dist(wuf_dist_qza$data)
+
+# Match metadata
+sample_order <- labels(wuf_dist)
+metadata_wuf <- metadata %>%
+  filter(SampleID %in% sample_order) %>%
+  arrange(match(SampleID, sample_order))
+
+# Check dispersions
+wuf_disp_treatment <- betadisper(wuf_dist, metadata_wuf$pvc_level)
+wuf_disp_stage <- betadisper(wuf_dist, metadata_wuf$stage)
+
+cat("\n=== Testing Homogeneity of Dispersions (Weighted UniFrac) ===\n")
+cat("\nBy Treatment:\n")
+print(permutest(wuf_disp_treatment, permutations = 999))
+cat("\nBy Stage:\n")
+print(permutest(wuf_disp_stage, permutations = 999))
+
+# PERMANOVA
+cat("\n=== PERMANOVA Results (Weighted UniFrac) ===\n")
+wuf_permanova <- adonis2(
+  wuf_dist ~ pvc_level * stage,
+  data = metadata_wuf,
+  permutations = 999,
+  by = "margin"
+)
+
+print(wuf_permanova)
+
+# Save results
+write.csv(
+  as.data.frame(wuf_permanova),
+  file.path(output_dir, "permanova_weighted_unifrac_results.csv"),
+  row.names = TRUE
+)
+```
+
+## Unweighted UniFrac
+
+Unweighted UniFrac uses phylogeny but only presence/absence.
+
+```{r unweighted-unifrac-permanova}
+# Load Unweighted UniFrac distance matrix
+uwuf_dist_qza <- read_qza(file.path(core_metrics_path, "unweighted_unifrac_distance_matrix.qza"))
+uwuf_dist <- as.dist(uwuf_dist_qza$data)
+
+# Match metadata
+sample_order <- labels(uwuf_dist)
+metadata_uwuf <- metadata %>%
+  filter(SampleID %in% sample_order) %>%
+  arrange(match(SampleID, sample_order))
+
+# Check dispersions
+uwuf_disp_treatment <- betadisper(uwuf_dist, metadata_uwuf$pvc_level)
+uwuf_disp_stage <- betadisper(uwuf_dist, metadata_uwuf$stage)
+
+cat("\n=== Testing Homogeneity of Dispersions (Unweighted UniFrac) ===\n")
+cat("\nBy Treatment:\n")
+print(permutest(uwuf_disp_treatment, permutations = 999))
+cat("\nBy Stage:\n")
+print(permutest(uwuf_disp_stage, permutations = 999))
+
+# PERMANOVA
+cat("\n=== PERMANOVA Results (Unweighted UniFrac) ===\n")
+uwuf_permanova <- adonis2(
+  uwuf_dist ~ pvc_level * stage,
+  data = metadata_uwuf,
+  permutations = 999,
+  by = "margin"
+)
+
+print(uwuf_permanova)
+
+# Save results
+write.csv(
+  as.data.frame(uwuf_permanova),
+  file.path(output_dir, "permanova_unweighted_unifrac_results.csv"),
+  row.names = TRUE
+)
+```
+
+# Compositional PERMANOVA (Aitchison Distance)
+
+For compositional data analysis following Gloor et al. 2017, we use **Aitchison distance** (Euclidean distance on CLR-transformed data).
+
+## Load and Transform Data
+
+```{r load-feature-table}
+# Load feature table
+feature_table_qza <- read_qza(feature_table_path)
+feature_table <- feature_table_qza$data
+
+# Transpose so samples are rows
+feature_matrix <- t(as.matrix(feature_table))
+
+cat("Feature table dimensions:", dim(feature_matrix), "\n")
+cat("Number of samples:", nrow(feature_matrix), "\n")
+cat("Number of features:", ncol(feature_matrix), "\n")
+```
+
+```{r clr-transformation}
+# Replace zeros using compositional zero replacement
+feature_nozero <- cmultRepl(feature_matrix, method = "CZM", label = 0)
+
+# Apply centered log-ratio (CLR) transformation
+feature_clr <- clr(feature_nozero)
+
+# Calculate Aitchison distance (Euclidean on CLR-transformed data)
+aitchison_dist <- dist(feature_clr, method = "euclidean")
+
+cat("Aitchison distance matrix calculated\n")
+cat("Distance range:", range(aitchison_dist), "\n")
+```
+
+## Match Metadata
+
+```{r match-metadata-compositional}
+# Get sample IDs from distance matrix
+sample_ids <- rownames(feature_clr)
+
+# Filter and order metadata
+metadata_comp <- metadata %>%
+  filter(SampleID %in% sample_ids) %>%
+  arrange(match(SampleID, sample_ids))
+
+cat("Samples in compositional analysis:", nrow(metadata_comp), "\n")
+```
+
+## Check Dispersions
+
+```{r aitchison-dispersions}
+# Test homogeneity of dispersions
+ait_disp_treatment <- betadisper(aitchison_dist, metadata_comp$pvc_level)
+ait_disp_stage <- betadisper(aitchison_dist, metadata_comp$stage)
+
+cat("\n=== Dispersion Tests (Aitchison Distance) ===\n")
+cat("\nBy Treatment:\n")
+ait_disp_perm_treatment <- permutest(ait_disp_treatment, permutations = 999)
+print(ait_disp_perm_treatment)
+
+cat("\nBy Stage:\n")
+ait_disp_perm_stage <- permutest(ait_disp_stage, permutations = 999)
+print(ait_disp_perm_stage)
+
+# Visualize dispersions
+png(file.path(figures_dir, "dispersion_by_treatment_aitchison.png"),
+    width = 10, height = 6, units = "in", res = 300)
+boxplot(ait_disp_treatment,
+        main = "Multivariate Dispersion by Treatment (Aitchison)",
+        xlab = "PVC Leachate Level",
+        ylab = "Distance to Centroid")
+dev.off()
+
+png(file.path(figures_dir, "dispersion_by_stage_aitchison.png"),
+    width = 10, height = 6, units = "in", res = 300)
+boxplot(ait_disp_stage,
+        main = "Multivariate Dispersion by Stage (Aitchison)",
+        xlab = "Developmental Stage",
+        ylab = "Distance to Centroid")
+dev.off()
+```
+
+## Run PERMANOVA
+
+```{r aitchison-permanova}
+cat("\n=== PERMANOVA Results (Aitchison Distance) ===\n")
+
+# Main model with interaction
+ait_permanova <- adonis2(
+  aitchison_dist ~ pvc_level * stage,
+  data = metadata_comp,
+  permutations = 999,
+  by = "margin"
+)
+
+print(ait_permanova)
+
+# Save results
+write.csv(
+  as.data.frame(ait_permanova),
+  file.path(output_dir, "permanova_aitchison_results.csv"),
+  row.names = TRUE
+)
+```
+
+## Additional Models
+
+Test different model formulations:
+
+```{r aitchison-additional-models}
+# Model with continuous time
+cat("\n=== PERMANOVA with Continuous Time ===\n")
+ait_permanova_hpf <- adonis2(
+  aitchison_dist ~ leachate * timepoint,
+  data = metadata_comp,
+  permutations = 999,
+  by = "margin"
+)
+print(ait_permanova_hpf)
+
+# Model including parental cross
+if ("parents" %in% colnames(metadata_comp)) {
+  cat("\n=== PERMANOVA with Parental Cross ===\n")
+  ait_permanova_parents <- adonis2(
+    aitchison_dist ~ pvc_level * stage + parents,
+    data = metadata_comp,
+    permutations = 999,
+    by = "margin"
+  )
+  print(ait_permanova_parents)
+  
+  write.csv(
+    as.data.frame(ait_permanova_parents),
+    file.path(output_dir, "permanova_aitchison_with_parents_results.csv"),
+    row.names = TRUE
+  )
+}
+```
+
+# Visualize with PCoA
+
+Create PCoA ordination plots with PERMANOVA results annotated.
+
+```{r pcoa-aitchison}
+#| fig-width: 12
+#| fig-height: 10
+
+# Perform PCoA
+pcoa_result <- cmdscale(aitchison_dist, k = 2, eig = TRUE)
+
+# Calculate variance explained
+variance_explained <- pcoa_result$eig[1:2] / sum(pcoa_result$eig) * 100
+
+# Create data frame for plotting
+pcoa_df <- data.frame(
+  PC1 = pcoa_result$points[, 1],
+  PC2 = pcoa_result$points[, 2]
+) %>%
+  bind_cols(metadata_comp)
+
+# Extract PERMANOVA statistics for annotation
+perm_treatment_stat <- sprintf(
+  "Treatment: R² = %.3f, p = %.3f",
+  ait_permanova$R2[which(rownames(ait_permanova) == "pvc_level")],
+  ait_permanova$`Pr(>F)`[which(rownames(ait_permanova) == "pvc_level")]
+)
+
+perm_stage_stat <- sprintf(
+  "Stage: R² = %.3f, p = %.3f",
+  ait_permanova$R2[which(rownames(ait_permanova) == "stage")],
+  ait_permanova$`Pr(>F)`[which(rownames(ait_permanova) == "stage")]
+)
+
+perm_interaction_stat <- sprintf(
+  "Interaction: R² = %.3f, p = %.3f",
+  ait_permanova$R2[which(rownames(ait_permanova) == "pvc_level:stage")],
+  ait_permanova$`Pr(>F)`[which(rownames(ait_permanova) == "pvc_level:stage")]
+)
+
+# PCoA colored by treatment
+p1 <- ggplot(pcoa_df, aes(x = PC1, y = PC2, color = pvc_level, shape = stage)) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_viridis_d(option = "plasma", begin = 0.2, end = 0.9) +
+  labs(
+    title = "PCoA of Aitchison Distance - Colored by Treatment",
+    subtitle = paste0(perm_treatment_stat, "\n", perm_interaction_stat),
+    x = paste0("PC1 (", round(variance_explained[1], 1), "%)"),
+    y = paste0("PC2 (", round(variance_explained[2], 1), "%)"),
+    color = "PVC Leachate",
+    shape = "Stage"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10, color = "grey40"),
+    legend.position = "right"
+  )
+
+# PCoA colored by stage
+p2 <- ggplot(pcoa_df, aes(x = PC1, y = PC2, color = stage, shape = pvc_level)) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_viridis_d(option = "mako", begin = 0.2, end = 0.9) +
+  labs(
+    title = "PCoA of Aitchison Distance - Colored by Stage",
+    subtitle = paste0(perm_stage_stat, "\n", perm_interaction_stat),
+    x = paste0("PC1 (", round(variance_explained[1], 1), "%)"),
+    y = paste0("PC2 (", round(variance_explained[2], 1), "%)"),
+    color = "Dev. Stage",
+    shape = "PVC Leachate"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10, color = "grey40"),
+    legend.position = "right"
+  )
+
+# Combine plots
+combined_pcoa <- p1 / p2
+
+# Save plots
+ggsave(
+  file.path(figures_dir, "pcoa_aitchison_by_treatment.png"),
+  plot = p1,
+  width = 12, height = 8, dpi = 300
+)
+
+ggsave(
+  file.path(figures_dir, "pcoa_aitchison_by_stage.png"),
+  plot = p2,
+  width = 12, height = 8, dpi = 300
+)
+
+ggsave(
+  file.path(figures_dir, "pcoa_aitchison_combined.png"),
+  plot = combined_pcoa,
+  width = 12, height = 14, dpi = 300
+)
+
+# Display plots
+print(combined_pcoa)
+```
+
+::: {.callout-tip}
+## Visualization Best Practices
+
+- **PCoA shows the ordination** - spatial arrangement of samples
+- **PERMANOVA tests statistical significance** - whether groups differ
+- **Always annotate plots** with PERMANOVA statistics
+- **Report both visualization and statistics** in publications
+:::
+
+# Pairwise PERMANOVA
+
+If overall PERMANOVA is significant with >2 groups, perform pairwise comparisons.
+
+```{r pairwise-permanova}
+# Function for pairwise PERMANOVA
+pairwise_permanova <- function(dist_matrix, metadata, group_var) {
+  groups <- unique(metadata[[group_var]])
+  n_groups <- length(groups)
+  
+  # Initialize results matrix
+  results <- matrix(NA, n_groups, n_groups)
+  rownames(results) <- groups
+  colnames(results) <- groups
+  
+  # Perform pairwise comparisons
+  for (i in 1:(n_groups - 1)) {
+    for (j in (i + 1):n_groups) {
+      group1 <- groups[i]
+      group2 <- groups[j]
+      
+      # Subset data
+      subset_idx <- metadata[[group_var]] %in% c(group1, group2)
+      subset_dist <- as.dist(as.matrix(dist_matrix)[subset_idx, subset_idx])
+      subset_metadata <- metadata[subset_idx, ]
+      
+      # Create temporary formula
+      formula_str <- paste("subset_dist ~", group_var)
+      
+      # Run PERMANOVA
+      perm_result <- adonis2(
+        as.formula(formula_str),
+        data = subset_metadata,
+        permutations = 999
+      )
+      
+      # Store p-value
+      results[i, j] <- perm_result$`Pr(>F)`[1]
+      results[j, i] <- perm_result$`Pr(>F)`[1]
+    }
+  }
+  
+  return(results)
+}
+
+# Run pairwise comparisons for treatment
+cat("\n=== Pairwise PERMANOVA: Treatment Groups ===\n")
+pairwise_treatment <- pairwise_permanova(
+  aitchison_dist,
+  metadata_comp,
+  "pvc_level"
+)
+
+# Apply FDR correction
+pairwise_treatment_vec <- pairwise_treatment[upper.tri(pairwise_treatment)]
+pairwise_treatment_adj <- p.adjust(pairwise_treatment_vec, method = "fdr")
+
+# Create results data frame
+pairwise_results_df <- data.frame(
+  Comparison = character(),
+  P_value = numeric(),
+  P_adjusted = numeric()
+)
+
+idx <- 1
+groups <- levels(metadata_comp$pvc_level)
+for (i in 1:(length(groups) - 1)) {
+  for (j in (i + 1):length(groups)) {
+    pairwise_results_df <- rbind(
+      pairwise_results_df,
+      data.frame(
+        Comparison = paste(groups[i], "vs", groups[j]),
+        P_value = pairwise_treatment[i, j],
+        P_adjusted = pairwise_treatment_adj[idx]
+      )
+    )
+    idx <- idx + 1
+  }
+}
+
+print(pairwise_results_df)
+
+# Save results
+write.csv(
+  pairwise_results_df,
+  file.path(output_dir, "permanova_pairwise_treatment_results.csv"),
+  row.names = FALSE
+)
+
+# Run pairwise for stage
+cat("\n=== Pairwise PERMANOVA: Developmental Stages ===\n")
+pairwise_stage <- pairwise_permanova(
+  aitchison_dist,
+  metadata_comp,
+  "stage"
+)
+
+# Apply FDR correction
+pairwise_stage_vec <- pairwise_stage[upper.tri(pairwise_stage)]
+pairwise_stage_adj <- p.adjust(pairwise_stage_vec, method = "fdr")
+
+# Create results data frame
+pairwise_stage_results_df <- data.frame(
+  Comparison = character(),
+  P_value = numeric(),
+  P_adjusted = numeric()
+)
+
+idx <- 1
+stages <- levels(metadata_comp$stage)
+for (i in 1:(length(stages) - 1)) {
+  for (j in (i + 1):length(stages)) {
+    pairwise_stage_results_df <- rbind(
+      pairwise_stage_results_df,
+      data.frame(
+        Comparison = paste(stages[i], "vs", stages[j]),
+        P_value = pairwise_stage[i, j],
+        P_adjusted = pairwise_stage_adj[idx]
+      )
+    )
+    idx <- idx + 1
+  }
+}
+
+print(pairwise_stage_results_df)
+
+# Save results
+write.csv(
+  pairwise_stage_results_df,
+  file.path(output_dir, "permanova_pairwise_stage_results.csv"),
+  row.names = FALSE
+)
+```
+
+# Summary of All PERMANOVA Results
+
+Create a summary table comparing results across all distance metrics.
+
+```{r summary-table}
+# Function to extract key stats from adonis2 result
+extract_stats <- function(perm_result, term) {
+  idx <- which(rownames(perm_result) == term)
+  if (length(idx) == 0) return(c(NA, NA, NA))
+  
+  return(c(
+    F_stat = perm_result$F[idx],
+    R2 = perm_result$R2[idx],
+    p_value = perm_result$`Pr(>F)`[idx]
+  ))
+}
+
+# Create summary table
+summary_table <- data.frame(
+  Distance_Metric = c("Bray-Curtis", "Jaccard", "Weighted UniFrac", "Unweighted UniFrac", "Aitchison"),
+  
+  Treatment_F = c(
+    extract_stats(bc_permanova, "pvc_level")[1],
+    extract_stats(jac_permanova, "pvc_level")[1],
+    extract_stats(wuf_permanova, "pvc_level")[1],
+    extract_stats(uwuf_permanova, "pvc_level")[1],
+    extract_stats(ait_permanova, "pvc_level")[1]
+  ),
+  
+  Treatment_R2 = c(
+    extract_stats(bc_permanova, "pvc_level")[2],
+    extract_stats(jac_permanova, "pvc_level")[2],
+    extract_stats(wuf_permanova, "pvc_level")[2],
+    extract_stats(uwuf_permanova, "pvc_level")[2],
+    extract_stats(ait_permanova, "pvc_level")[2]
+  ),
+  
+  Treatment_p = c(
+    extract_stats(bc_permanova, "pvc_level")[3],
+    extract_stats(jac_permanova, "pvc_level")[3],
+    extract_stats(wuf_permanova, "pvc_level")[3],
+    extract_stats(uwuf_permanova, "pvc_level")[3],
+    extract_stats(ait_permanova, "pvc_level")[3]
+  ),
+  
+  Stage_F = c(
+    extract_stats(bc_permanova, "stage")[1],
+    extract_stats(jac_permanova, "stage")[1],
+    extract_stats(wuf_permanova, "stage")[1],
+    extract_stats(uwuf_permanova, "stage")[1],
+    extract_stats(ait_permanova, "stage")[1]
+  ),
+  
+  Stage_R2 = c(
+    extract_stats(bc_permanova, "stage")[2],
+    extract_stats(jac_permanova, "stage")[2],
+    extract_stats(wuf_permanova, "stage")[2],
+    extract_stats(uwuf_permanova, "stage")[2],
+    extract_stats(ait_permanova, "stage")[2]
+  ),
+  
+  Stage_p = c(
+    extract_stats(bc_permanova, "stage")[3],
+    extract_stats(jac_permanova, "stage")[3],
+    extract_stats(wuf_permanova, "stage")[3],
+    extract_stats(uwuf_permanova, "stage")[3],
+    extract_stats(ait_permanova, "stage")[3]
+  ),
+  
+  Interaction_F = c(
+    extract_stats(bc_permanova, "pvc_level:stage")[1],
+    extract_stats(jac_permanova, "pvc_level:stage")[1],
+    extract_stats(wuf_permanova, "pvc_level:stage")[1],
+    extract_stats(uwuf_permanova, "pvc_level:stage")[1],
+    extract_stats(ait_permanova, "pvc_level:stage")[1]
+  ),
+  
+  Interaction_R2 = c(
+    extract_stats(bc_permanova, "pvc_level:stage")[2],
+    extract_stats(jac_permanova, "pvc_level:stage")[2],
+    extract_stats(wuf_permanova, "pvc_level:stage")[2],
+    extract_stats(uwuf_permanova, "pvc_level:stage")[2],
+    extract_stats(ait_permanova, "pvc_level:stage")[2]
+  ),
+  
+  Interaction_p = c(
+    extract_stats(bc_permanova, "pvc_level:stage")[3],
+    extract_stats(jac_permanova, "pvc_level:stage")[3],
+    extract_stats(wuf_permanova, "pvc_level:stage")[3],
+    extract_stats(uwuf_permanova, "pvc_level:stage")[3],
+    extract_stats(ait_permanova, "pvc_level:stage")[3]
+  )
+)
+
+# Round numeric columns
+summary_table <- summary_table %>%
+  mutate(across(where(is.numeric), ~ round(.x, 4)))
+
+print(summary_table)
+
+# Save summary table
+write.csv(
+  summary_table,
+  file.path(output_dir, "permanova_summary_all_metrics.csv"),
+  row.names = FALSE
+)
+```
+
+::: {.callout-note}
+## Comparing Distance Metrics
+
+Different distance metrics may yield different results:
+
+- **Aitchison**: Recommended for compositional data (accounts for compositionality)
+- **Bray-Curtis**: Common for abundance data, intuitive interpretation
+- **UniFrac**: Best when phylogeny is important
+- **Jaccard**: Focus on presence/absence, good for rare taxa
+
+**Consistency across metrics** strengthens conclusions. **Discrepancies** may reveal different aspects of community change (e.g., abundant vs. rare taxa).
+:::
+
+# Interpretation Guidelines
+
+## Reporting in Manuscripts
+
+### Methods Example
+
+> "We performed permutational multivariate analysis of variance (PERMANOVA; Anderson 2001) using the `adonis2` function in the vegan package (v`r packageVersion('vegan')`) in R (v`r getRversion()`). We tested for effects of PVC leachate treatment, developmental stage, and their interaction on microbial community composition using Aitchison distance matrices calculated from centered log-ratio (CLR)-transformed feature tables. Significance was assessed via 999 permutations with marginal (Type III) sums of squares. We verified the assumption of homogeneity of multivariate dispersions using permutational tests (PERMDISP; Anderson 2006). For significant overall effects with >2 levels, we performed pairwise PERMANOVA comparisons with false discovery rate (FDR) correction."
+
+### Results Example
+
+> "PERMANOVA revealed significant effects of both PVC leachate treatment (F₃,₄₈ = `r round(extract_stats(ait_permanova, "pvc_level")[1], 2)`, R² = `r round(extract_stats(ait_permanova, "pvc_level")[2], 2)`, p = `r round(extract_stats(ait_permanova, "pvc_level")[3], 3)`) and developmental stage (F₂,₄₈ = `r round(extract_stats(ait_permanova, "stage")[1], 2)`, R² = `r round(extract_stats(ait_permanova, "stage")[2], 2)`, p = `r round(extract_stats(ait_permanova, "stage")[3], 3)`) on microbial community composition. The treatment × stage interaction was not significant (F₆,₄₈ = `r round(extract_stats(ait_permanova, "pvc_level:stage")[1], 2)`, R² = `r round(extract_stats(ait_permanova, "pvc_level:stage")[2], 2)`, p = `r round(extract_stats(ait_permanova, "pvc_level:stage")[3], 3)`), indicating consistent treatment effects across developmental stages. Pairwise comparisons showed significant differences between high vs. control treatments (p_FDR < 0.05), but not between low/mid vs. control."
+
+## Key Takeaways
+
+1. **PERMANOVA tests distance matrices**, not ordination axes
+2. **Always check dispersion assumptions** - violations can cause false positives
+3. **Report effect sizes (R²)** alongside p-values
+4. **Significant p-value** means groups differ in composition, not that effect is large
+5. **Non-significant** doesn't prove groups are identical
+6. **Pairwise tests** needed for >2 groups to identify which differ
+7. **Multiple distance metrics** can provide complementary insights
+
+# Session Information
+
+```{r session-info}
+sessionInfo()
+```
+
+# References
+
+::: {#refs}
+:::

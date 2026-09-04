@@ -1,0 +1,306 @@
+---
+title: "Correlation Analysis"
+subtitle: "genes to taxa"
+author: "Sarah Tanja"
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools: 
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = TRUE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "")        
+```
+
+# Background
+
+see issue [2353](https://github.com/RobertsLab/resources/issues/2352)
+
+deg_cm is a matrix/data.frame with rows = gene_id, cols = samples
+dat_cm is a matrix/data.frame with rows = taxa, cols = samples
+sample columns are in the same order in both matrices
+
+# Setup 
+## Install packages
+```{r}
+install.packages(c("psych","pheatmap","igraph")) # run once
+```
+
+## Load libraries
+```{r}
+library(tidyverse)
+library(qiime2R)
+library(compositions)
+library(zCompositions)
+library(psych)     # corr.test
+library(pheatmap)
+library(igraph)
+```
+## Set paths
+```{r}
+# Define file paths
+feature_table_path <- "../../salipante/241121_StonyCoral/270x200/collapsed-l7.qza"
+metadata_path <- "../../metadata/meta.csv"
+taxonomy_path <- "../../salipante/241121_StonyCoral/270x200/250414_270x200_representative-sequences_taxonomy.qza"
+output_path <- "../../output/correlation/"
+```
+## Load data
+
+```{r}
+vst_gcm <- read_csv("../../input/host-significant/norm_count_mat.csv") # vst normalized gene count matrix
+sig_degs <- read_csv("../../input/host-significant/sig_summary.csv") # summary of DEGs log2FC & pval per test/contrast
+list_degs <- read_csv("../../input/host-significant/sig_all.csv") # list of 151 significant DEGs gene_id
+
+sig_leachate_taxa <- read_csv("../../output/maaslin-taxa/sig_pvc_all.csv")
+```
+### DEGs
+
+Use a semi-join (keeps rows from `norm_count_mat` whose gene_id exists in `sig_all`)
+
+```{r}
+deg_cm <- norm_count_mat %>% 
+  semi_join(list_degs, by = "gene_id") %>% 
+  column_to_rownames(var = "gene_id")
+```
+
+```{r}
+# Save matrix to CSV (rows = genes/taxa preserved)
+write.csv(deg_cm, file = file.path(output_path, "deg_cm_vst.csv"), row.names = TRUE, quote = FALSE)
+```
+
+### DATs
+
+```{r}
+# Load feature table from QIIME2 artifact
+ft_l7 <- read_qza(feature_table_path)$data
+
+# Convert to data.frame
+ft_l7 <- ft_l7 %>% 
+  as.data.frame()
+
+# QIIME2 format typically has features as rows, samples as columns
+ft_l7 <- t(ft_l7)  # Transpose so samples are rows, taxa are columns
+```
+
+CLR Transformation
+
+The centered log-ratio (CLR) transformation converts compositional data to Euclidean space. It handles zeros by replacing them with small values (geometric Bayesian multiplicative replacement).
+
+```{r}
+# Replace zeros with small values using cmultRepl from zCompositions
+# This is necessary because log transformation is undefined for zeros
+ft_l7_nozero <- cmultRepl(ft_l7, method = "CZM", label = 0)
+
+# Apply CLR transformation
+ft_l7_clr <- clr(ft_l7_nozero)
+
+# make features rownames
+taxa_matrix_clr <- t(ft_l7_clr) %>%
+  as.data.frame() %>% 
+  rownames_to_column(var = "feature")
+```
+
+```{r}
+dat_cm <- taxa_matrix_clr %>% 
+  semi_join(sig_leachate_taxa, by = "feature") %>% 
+  column_to_rownames(var="feature")
+```
+
+Remove outlier samples
+```{r}
+dat_cm <- dat_cm %>% 
+  dplyr::select(!"131415L4")%>% 
+  dplyr::select(!"789C4")
+```
+
+```{r}
+# Save matrix to CSV (rows = genes/taxa preserved)
+write.csv(dat_cm, file = file.path(output_path, "dat_cm_clr.csv"), row.names = TRUE, quote = FALSE)
+```
+
+# Check order 
+Examine the two count matrices and make sure the samples in the columns are ordered the same in each matrix. Should return TRUE. 
+```{r}
+# 1) Ensure matching sample order
+all(colnames(dat_cm) == colnames(deg_cm))
+```
+
+# Spearman 
+Compute Spearman correlations + p-values all pairs using psych::corr.test
+psych::corr.test can take two matrices (rows = variables, columns = observations)
+it will return correlation matrix (r) and p-value matrix (p)
+```{r}
+?psych
+```
+
+matrices should have the same number of rows
+```{r}
+cors <- psych::corr.test(t(deg_cm), t(dat_cm), method = "spearman", adjust = "BH", alpha = 0.05)
+```
+
+cors$r is a matrix of correlation coefficients (genes x taxa)
+cors$p is a matrix of p-values (genes x taxa)
+```{r}
+# 4) Tidy results into a long data.frame
+r_mat <- cors$r
+p_mat <- cors$p
+
+res_df <- as.data.frame(as.table(r_mat))
+colnames(res_df) <- c("gene", "taxa", "rho")
+
+p_df <- as.data.frame(as.table(p_mat))
+colnames(p_df) <- c("gene", "taxa", "pvalue")
+
+res <- left_join(res_df, p_df, by = c("gene", "taxa"))
+```
+
+
+```{r}
+# 6) Add thresholds and filter significant associations
+# Example thresholds: FDR < 0.05 and |rho| >= 0.3 (tune these)
+sig_res <- res %>%
+  filter(pvalue <= 0.05 & abs(rho) >= 0.3) %>%
+  arrange(pvalue, desc(abs(rho)))
+
+# Quick summary
+cat("Total tests:", nrow(res), "\n")
+cat("Significant pairs (FDR<=0.05 & |rho|>=0.3):", nrow(sig_res), "\n")
+
+```
+```{r}
+# 7) Save results
+write.csv(res, file = file.path(output_path, "gene_taxa_spearman_all_pairs.csv"), row.names = FALSE)
+write.csv(sig_res, file = file.path(output_path,"gene_taxa_spearman_significant_pairs.csv"), row.names = FALSE)
+```
+
+# Visualizations
+```{r}
+# 8) Visualizations
+# 8a. Heatmap of top associations: construct a small matrix of rho for top N genes & taxa
+top_genes <- unique(head(sig_res$gene, 50))
+top_taxa  <- unique(head(sig_res$taxa, 50))
+heat_mat <- r_mat[rownames(r_mat) %in% top_genes, colnames(r_mat) %in% top_taxa, drop = FALSE]
+pheatmap(heat_mat, cluster_rows = TRUE, cluster_cols = TRUE, 
+         main = "Spearman rho (genes x taxa) - top candidates")
+```
+
+```{r}
+# 8b. Bipartite network of significant pairs
+if (nrow(sig_res) > 0) {
+  edges <- sig_res %>% select(gene, taxa, rho)
+  # Create igraph: prefix taxa names to avoid collisions with gene names
+  edges <- edges %>% mutate(taxa_node = paste0("taxa:", taxa))
+  g <- graph_from_data_frame(d = edges %>% select(gene, taxa_node, rho), directed = FALSE)
+  # Set edge width/color by rho
+  E(g)$weight <- abs(edges$rho)
+  plot(g, vertex.label.cex = 0.7, edge.width = E(g)$weight*2,
+       main = "Gene-Taxa association network (|rho| >= 0.3, FDR<=0.05)")
+}
+```
+
+```{r}
+# 8c. Scatterplot for top pair
+if (nrow(sig_res) > 0) {
+  top_pair <- sig_res %>% slice(1)
+  gname <- top_pair$gene
+  tname <- top_pair$taxa
+  x <- as.numeric(deg_cm[gname, ])
+  y <- as.numeric(dat_cm[tname, ])
+  plot(x, y, xlab = paste("VST:", gname), ylab = paste("CLR:", tname),
+       main = paste0("rho=", round(top_pair$rho,3), ", FDR=", signif(top_pair$p_adj,3)))
+  abline(lm(y ~ x), col = "red")
+}
+```
+
+# SparCC Correlation Analysis
+
+SparCC is designed specifically for compositional data and infers correlations while accounting for the compositional constraint.
+
+```{r}
+# Note: SparCC implementation can be done using SpiecEasi package
+# or the sparcc function from various implementations
+
+# If SpiecEasi is installed, uncomment and use:
+# library(SpiecEasi)
+# 
+# # Run SparCC
+# sparcc_result <- sparcc(t(feature_matrix_t))
+# 
+# # Extract correlation matrix
+# sparcc_cor <- sparcc_result$Cor
+# rownames(sparcc_cor) <- colnames(feature_matrix_t)
+# colnames(sparcc_cor) <- colnames(feature_matrix_t)
+# 
+# # Plot correlation matrix (subset for visualization)
+# # Select top 50 most abundant features
+# feature_abundance <- colSums(feature_matrix_t)
+# top_features <- names(sort(feature_abundance, decreasing = TRUE)[1:50])
+# 
+# sparcc_cor_subset <- sparcc_cor[top_features, top_features]
+# 
+# # Create correlation plot
+# png("../output/sparcc_correlation_plot.png", width = 12, height = 12, units = "in", res = 300)
+# corrplot(sparcc_cor_subset, method = "color", type = "upper",
+#          tl.cex = 0.5, tl.col = "black",
+#          title = "SparCC Correlation Matrix (Top 50 Features)",
+#          mar = c(0, 0, 2, 0))
+# dev.off()
+
+cat("SparCC analysis requires SpiecEasi package.\n")
+cat("To run SparCC, install SpiecEasi and uncomment the code above.\n")
+cat("Installation: devtools::install_github('zdk123/SpiecEasi')\n")
+```
+
+```{r}
+# Alternative: Calculate correlations on CLR-transformed data
+# This is a simpler approach that approximates compositional correlations
+
+# Calculate correlation matrix on CLR-transformed data
+clr_cor <- cor(feature_clr, method = "pearson")
+
+# Select top abundant features for visualization
+feature_abundance <- colSums(feature_matrix_t)
+top_features <- names(sort(feature_abundance, decreasing = TRUE)[1:50])
+
+clr_cor_subset <- clr_cor[top_features, top_features]
+
+# Create correlation plot
+png("../output/clr_correlation_plot.png", width = 12, height = 12, units = "in", res = 300)
+corrplot(clr_cor_subset, method = "color", type = "upper",
+         tl.cex = 0.5, tl.col = "black",
+         title = "Correlation Matrix on CLR-Transformed Data (Top 50 Features)",
+         mar = c(0, 0, 2, 0))
+dev.off()
+
+cat("Correlation plot saved to: ../output/clr_correlation_plot.png\n")
+```
+
+Correlate DE effect sizes (log fold-changes)
+What: correlate log2 fold-changes (LFC) from DE genes with log fold-changes or effect sizes of DA taxa across conditions (i.e., compare LFC vectors).
+Pros: reduces dimensionality and focuses on features that change; easier to interpret biologically.
+Cons: LFCs across very different data types are not directly comparable; sample-size for correlation is limited by number of significant features.
+Caution: control for significance-selection bias; consider rank-based associations (Spearman) and examine direction consistency.

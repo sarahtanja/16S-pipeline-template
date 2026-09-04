@@ -1,0 +1,211 @@
+---
+title: "Import, Trim, and Denoise ASVs"
+author: "Sarah Tanja"
+date: 09/03/2026
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = FALSE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "", # Prevents appending '##' to beginning of lines in code output
+  dev = "jpeg",
+  dpi = 600,
+  fig.retina = 2)        
+```
+
+# Background
+
+I'm re-running the commands already run by Adam Waalkes of the Salipante Lab (qiime2 commands found in `../salipante/Sarah_StonyCoral/250405_QIIME2_filtered_StonyCloral_final.txt`), the original commands I re-use and/or modify are also block-quoted prior to executable code chunks in this document.
+
+# Load packages
+
+```{r}
+library(knitr)
+library(dplyr)
+library(stringr)
+library(readr)
+library(reticulate)
+```
+
+# Activate qiime2 environment in R
+
+This is equivalent to `conda activate qiime2-2023.5` in the terminal but allows running qiime commands in r chunks with engine ='bash' throughout the quarto markdown doc.
+
+```{r load-qiime-env, eval=TRUE}
+use_condaenv(condaenv = "qiime2-2023.5", conda = "/home/shared/8TB_HDD_02/stanja/miniconda3/condabin/conda")
+
+# Check successful env loading
+py_config()
+```
+
+# Sequence files
+
+-   Here I am working with raw `.fastq.gz` files located in the `../data/` directory
+-   There are two `fastq.gz` files for each of the 63 samples, 1 forward read and 1 reverse read (R1 & R2)
+
+# Metadata
+
+-   metadata for the samples are located at `../metadata/metadata.tsv`
+
+```{r}
+metadata <- read_tsv("../metadata/metadata.tsv")
+```
+
+```{r, engine='bash'}
+qiime metadata tabulate \
+  --m-input-file ../metadata/metadata.tsv \
+  --o-visualization ../output/denoise/metadata.qzv
+```
+
+# Modify read manifest
+
+-   the read_manifest file the salipante lab used is here:
+
+```{r}
+read_manifest <- read_tsv("../salipante/241121_StonyCoral/250414_StonyCoral_read_manifest.tsv")
+
+head(read_manifest)
+```
+
+The read_manifest is a list of the sample_id's and their corresponding forward and reverse fastq.gz file paths. In this directory, the fastq.gz files are located at `../data/`
+
+However the paths must be absolute in order to run `qiime tools import` in the next step. Let's modify the read_manifest so that it works in this directory structure.
+
+```{r}
+normalizePath("../data/")
+```
+
+```{r, eval=TRUE}
+read_manifest_mod <- read_manifest %>% 
+  mutate(`forward-absolute-filepath` = str_replace(`forward-absolute-filepath`,
+                                                  "^/mnt/labs/salipante/data/sequencing_runs/241121_StonyCoral/",
+                                                  "/media/4TB_JPG_ext/stanja/gitprojects/coral-embryo-microbiome/data/"),
+         `reverse-absolute-filepath` = str_replace(`reverse-absolute-filepath`,
+                                                   "^/mnt/labs/salipante/data/sequencing_runs/241121_StonyCoral/",
+                                                   "/media/4TB_JPG_ext/stanja/gitprojects/coral-embryo-microbiome/data/")
+  )
+
+head(read_manifest_mod)
+```
+
+```{r}
+write_tsv(read_manifest_mod, "../input/read_manifest.tsv")
+```
+
+# Import data to QIIME
+
+> `qiime tools import --type 'SampleData[PairedEndSequencesWithQuality]' --input-path 250414_StonyCoral_read_manifest.tsv --output-path 250414_StonyCoral_imported_reads.qza --input-format PairedEndFastqManifestPhred33V2 Imported 250414_StonyCoral_read_manifest.tsv as PairedEndFastqManifestPhred33V2 to 250414_StonyCoral_imported_reads.qza`
+
+```{r, engine='bash'}
+qiime tools import \
+  --type 'SampleData[PairedEndSequencesWithQuality]' \
+  --input-path ../input/read_manifest.tsv \
+  --output-path ../output/denoise/imported_reads.qza \
+  --input-format PairedEndFastqManifestPhred33V2 
+```
+
+# Trim
+
+> `#klind primers so: qiime cutadapt trim-paired --i-demultiplexed-sequences 250414_StonyCoral_imported_reads.qza --p-cores 20 --p-front-f CCTACGGGNGGCWGCAG --p-front-r GACTACHVGGGTATCTAATCC --verbose --p-discard-untrimmed   --o-trimmed-sequences 250414_StonyCoral_imported_reads_trimmed.qza`
+
+```{r, engine='bash'}
+qiime cutadapt trim-paired \
+  --i-demultiplexed-sequences ../output/denoise/imported_reads.qza \
+  --p-cores 20 \
+  --p-front-f CCTACGGGNGGCWGCAG \
+  --p-front-r GACTACHVGGGTATCTAATCC \
+  --verbose \
+  --p-discard-untrimmed \
+  --o-trimmed-sequences ../output/denoise/imported_reads_trimmed.qza
+```
+
+```{r, engine='bash'}
+qiime tools peek ../output/denoise/imported_reads_trimmed.qza
+```
+
+## Create qzv of trimmed reads
+
+> `qiime demux summarize --i-data 250414_StonyCoral_imported_reads_trimmed.qza --o-visualization 250414_StonyCoral_imported_reads_trimmed.qzv`
+
+```{r, engine='bash'}
+qiime demux summarize \
+  --i-data ../output/denoise/imported_reads_trimmed.qza \
+  --o-visualization ../output/denoise/imported_reads_trimmed.qzv
+```
+
+Use QIIME 2 View to view the `.qzv` files:
+
+1.  Copy the `.qzv` or file to your local machine via <https://github.com/sarahtanja/coral-embryo-microbiome/blob/main/output/>
+
+    Open <https://view.qiime2.org> in a browser.
+
+    Drag and drop your file there to view it.
+
+# Check quality scores
+
+> `#qualities seemed fine, running across a number of trims to see which is best (qiime2-amplicon-2023.9) tron:/mnt/labs/salipante/data/projects/241121_StonyCoral/270x200 $ qiime dada2 denoise-paired --i-demultiplexed-seqs ../250414_StonyCoral_imported_reads_trimmed.qza --p-n-threads 20 --p-trunc-len-f 270 --p-trunc-len-r 200 --verbose --o-table 250414_StonyCoral_270x200_featureTable.qza --o-representative-sequences 250414_StonyCoral_240x230_representative-sequences.qza --o-denoising-stats 250414_StonyCoral_240x230_denoising-stats.qza`
+
+```{r, engine='bash'}
+qiime dada2 denoise-paired \
+  --i-demultiplexed-seqs ../output/denoise/imported_reads_trimmed.qza \
+  --p-n-threads 20 \
+  --p-trunc-len-f 270 \
+  --p-trunc-len-r 200 \
+  --verbose \
+  --o-table ../output/denoise/feature_table.qza \
+  --o-representative-sequences ../output/denoise/representative_sequences.qza \
+  --o-denoising-stats ../output/denoise/denoising_stats.qza
+```
+
+# Filter representative sequences
+
+# Reverse compliment
+
+## Export representative sequences from QIIME2
+
+```{r}
+qiime tools export \
+  --input-path rep-seqs.qza \
+  --output-path rep_seqs_exported
+```
+
+> \# 4 other read lengths
+>
+> qiime feature-table summarize \--i-table 250414_StonyCoral_270x200_featureTable.qza \--o-visualization 250414_StonyCoral_270x200_featureTable.qzv \--m-sample-metadata-file ../250416_StonyCoral_metadata.tsv
+>
+> qiime feature-table tabulate-seqs \--i-data 250414_StonyCoral_270x200_representative-sequences.qza \--o-visualization 250414_StonyCoral_270x200_representative-sequences.qzv
+>
+> qiime metadata tabulate \--m-input-file 250414_StonyCoral_270x200_denoising-stats.qza \--o-visualization 250414_StonyCoral_270x200_denoising-stats.qzv
+>
+> qiime diversity alpha-rarefaction \--i-table 250414_StonyCoral_270x200_featureTable.qza \--p-min-depth 10 \--p-steps 30 \--p-max-depth 400000 \--m-metadata-file ../250416_StonyCoral_metadata.tsv \--o-visualization 250416_StonyCoral_270x200_alpha_rarefaction_curves.qzv
+
+```{r, engine='bash'}
+qiime feature-table summarize \
+  --i-table ../output/feature_table.qza \
+  --o-visualization ../output/feature_table.qzv \
+  --m-sample-metadata-file ../metadata/metadata.tsv
+```
+
+```{r, engine='bash'}
+qiime feature-table tabulate-seqs \
+  --i-data ../output/representative_sequences.qza \
+  --o-visualization ../output/representative_sequences.qzv
+```
+
+```{r, engine='bash'}
+qiime metadata tabulate \
+  --m-input-file ../output/denoising_stats.qza \
+  --o-visualization ../output/denoising_stats.qzv
+```
+
+> \# looked at the curves and 270x200 was best as usual, and 400K looked good
+
+# Summary & next steps

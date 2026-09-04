@@ -1,0 +1,100 @@
+---
+title: "Running PICRUSt2"
+subtitle: "by creating a picrust2 environment"
+author: "Sarah Tanja"
+date: 2026-05-03
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools: 
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = FALSE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "") # Prevents appending '##' to beginning of lines in code output)        
+```
+
+# Background
+
+# Load libraries
+
+```{r, eval=TRUE}
+library(reticulate)
+library(tidyverse)
+library(qiime2R)
+```
+
+
+
+Use qiime tools (qiime2R) to  format feature table as a BIOM and representative sequences as fasta
+
+
+## Feature table (BIOM)
+
+located at path `../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza`
+
+```{r, engine='bash', eval=TRUE}
+qiime tools peek ../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza
+```
+
+```{r, engine='bash'}
+qiime tools export \
+  --input-path ../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_featureTable_filtered.qza \
+  --output-path ../../output/picrust2/
+```
+::: callout-important
+Now the feature table is `feature-table.biom`
+:::
+
+## Sequence file
+
+located at path `../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza`
+
+```{r, engine='bash', eval=TRUE}
+qiime tools peek ../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza
+```
+
+```{r, engine='bash'}
+qiime tools export \
+  --input-path ../../salipante/241121_StonyCoral/270x200/250414_StonyCoral_270x200_representative-sequences.qza \
+  --output-path ../../output/picrust2/
+```
+::: callout-important
+Now the sequences are `dna-sequences.fasta`
+:::
+
+# Run picrust2 on all ASVs full-pipeline
+The output of this will get passed through MaAsLin3 again to find differentially abundant or prevalent pathways across our experimental factors
+```{r, engine='bash'}
+conda activate picrust2 
+picrust2_pipeline.py \
+   -i ../../output/picrust2/feature-table.biom \
+   -s ../../output/picrust2/dna-sequences.fasta \
+   -o ../../output/picrust2/envrun \
+   -p 4 \
+   --verbose
+
+```

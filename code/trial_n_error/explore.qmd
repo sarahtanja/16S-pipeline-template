@@ -1,0 +1,175 @@
+---
+title: "Exploring results from mim_c"
+author: "Sarah Tanja"
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools: 
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+bibliography: "../microbiome_bibtex.bib"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = TRUE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "", # Prevents appending '##' to beginning of lines in code output
+  dev = "jpeg",
+  dpi = 600,
+  fig.retina = 2)        
+```
+
+# Background
+
+The microbiome analysis was completed by Adam Waalkes of mim_c from the Salipante Lab. The contents of his analysis are in the `Sarah_StonyCoral` directory.
+
+> A couple of things to note about the shannon diversity analysis we did. First, after we filtered out the Uassigned, mitochodria and chloroplast the diversity went up in all samples (average from 4.6 to 5.7) and we lost statistical significance in timeframe where we had had it in the previous analysis. The leachate 0 to 1 was still not statistically significant. Also, three of the samples gave errors due to a bug in QIIME2 calculating their shannon score so they were not in this analysis. Those three samples were in the rest of the analysis. - email correspondance with A.W.
+
+# Install packages & Load libraries
+
+```{r}
+library(tidyverse)
+```
+
+Let's jump straight to significant results from the Maaslin2 significant differential features
+
+# Import data
+
+```{r}
+significant <- read_tsv(file = "../Sarah_StonyCoral/Level7_filtered_organism_output/significant_results.tsv")
+```
+
+There were 732 significantly different bacteria across leachate level (`leachate`) and developmental time in hours post fertilization (`timepoint`)
+
+# Filter to bacteria that are significantly different in leachate treatments
+
+```{r}
+sig_leach <- significant %>% 
+  filter(metadata == "leachate")
+```
+
+125 bacteria were significantly different in leachate treatments. It seems there are many duplicates.. how do we consolidate? What are these bacteria, and what are their functions?
+
+::: {.callout-note}
+## Understanding the Model Results
+
+The Maaslin2 model uses an **additive design** (`leachate + timepoint`) without interaction terms. This means:
+
+- **Leachate effects** are averaged across all timepoints (4, 9, and 14 hpf)
+- **Timepoint effects** are averaged across all leachate concentrations (0, 0.01, 0.1, and 1)
+- We cannot determine from these results which specific leachate concentrations or timepoints drive the differences
+
+For a detailed explanation of the model design and how to interpret these results, see [maaslin2_interpretation.qmd](maaslin2_interpretation.qmd).
+
+To gain more granularity:
+1. Treat variables as categorical factors (e.g., compare 0.01 vs 0, 0.1 vs 0, etc.)
+2. Add an interaction term (`leachate:timepoint`) to test if effects differ across conditions
+3. Conduct post-hoc pairwise comparisons for specific bacteria of interest
+:::
+
+# Collapse duplicates
+
+A feature that is showing up as significant on multiple levels has the same `coef`, `stderr`, `pval` and `qval` values.
+
+The following code will: - Groups rows that have the same coef, stderr, pval, and qval - Within each group, selects the feature with the longest character length using nchar() and which.max()
+
+The longest character length of each group is the deepest taxonomic level
+
+```{r}
+collapsed_sig_leach <- sig_leach %>% 
+    group_by(coef, stderr, pval, qval) %>%
+  summarise(
+    feature = feature[which.max(nchar(feature))],
+    .groups = "drop"
+  )
+```
+
+Now we're down to 91 unique features ...
+
+# Top 10
+
+Let's just quickly explore the top 10 most significant ones
+
+```{r}
+top10 <- collapsed_sig_leach %>% 
+  arrange(desc(abs(coef))) %>% # sort by effect size (magnitude)
+  slice_head(n = 10) # keep top 10     
+
+print(top10)
+```
+
+## ⭐📉Arcobacteraceae (family)
+
+::: callout-note
+Beneficial mixotroph decreased (coef = -0.85, S.E. = 0.32, p = 9.4e-03, q = 4.9e-02) in leachate treatments
+:::
+
+> The phylogenomic tree of *Arcobacteraceae* is divided into three large clades, among which members of clades A and B are almost all from terrestrial environments, while those of clade C are widely distributed in various marine habitats in addition to some terrestrial origins. All clades harbor genes putatively involved in chitin degradation, sulfide oxidation, hydrogen oxidation, thiosulfate oxidation, denitrification, dissimilatory nitrate reduction to ammonium, microaerophilic respiration, and metal (iron/manganese) reduction. Additionally, in clade C, more unique pathways were retrieved, including thiosulfate disproportionation, ethanol fermentation, methane oxidation, fatty acid oxidation, cobalamin synthesis, and dissimilatory reductions of sulfate, perchlorate, and arsenate. Within this clade, two mixotrophic Candidatus genera represented by UBA6211 and CAIJNA01 harbor genes putatively involved in the reverse tricarboxylic acid pathway for carbon fixation. Moreover, the metatranscriptomic data in deep-sea *in situ* incubations indicated that the latter genus is a mixotroph that conducts carbon fixation by coupling sulfur oxidation and denitrification and metabolizing organic matter. Furthermore, global metatranscriptomic data confirmed the ubiquitous distribution and global relevance of *Arcobacteraceae* in the expression of those corresponding genes across all oceanic regions and depths [@Li2024-yr] .
+
+## 📉Dolosigranulum (genus)
+
+> Studies of nasal microbiota identify *Dolosigranulum pigrum* as a benign bacterium found in human nasal passages, it is the only species in the *Dolosigranulum* genus. However, little is known about this Gram-positive, catalase-negative, *Firmicute* bacterium, first described in 1993 (\[Aquirre et. al 1993\](https://doi.org/10.1111/j.1365-2672.1993.tb01602.x))
+
+## ⭐📉 Lactobacillus.\_\_ (genus or sp.?) & Lactobacillus (genus)
+
+::: callout-note
+Beneficial coral probiotic that decreased in leachate treatments
+:::
+
+Lactobacillus species are being explored as probiotics for corals, they could be beneficial to the coral's health and potentially buffer coral bleaching. 
+
+## 📉Microbacteriaceae (family)
+
+## ⭐📉Alteromonadaceae uncultured (genus)
+
+## 📉Oleiphilus_sp. (species) & Oleiphilus (genus)
+
+## ⬆️Atopostipes.s\_\_uncultured_bacterium (species)
+
+This group went up (positive coef)
+
+## 📉Cognatishimia.s\_\_uncultured_bacterium (species)
+
+# What happened to the CORE?
+
+-   p\. Pseudomonadota (previously Proteobacteria)
+
+    -   f\. Endozoicomonadaceae
+
+        > The most prominent coral--bacteria association occurs with the gammaproteobacterial genus Endozoicomonas (family Endozoicomonadaceae). Members of this genus form cell-associated microbial aggregates in coral tissues and are thought to have a role in holobiont nutrient cycling and amino acid, organosulfur compound and B vitamin metabolism[22](https://www.nature.com/articles/s41579-024-01015-3#ref-CR22 "Pogoreutz, C. et al. Coral holobiont cues prime Endozoicomonas for a symbiotic lifestyle. ISME J. 16, 1883–1895 (2022)."),[25](https://www.nature.com/articles/s41579-024-01015-3#ref-CR25 "Hochart, C. et al. Ecology of Endozoicomonadaceae in three coral genera across the Pacific Ocean. Nat. Commun. 14, 3037 (2023)."),[54](https://www.nature.com/articles/s41579-024-01015-3#ref-CR54 "Neave, M. J., Michell, C. T., Apprill, A. & Voolstra, C. R. Endozoicomonas genomes reveal functional adaptation and plasticity in bacterial strains symbiotically associated with diverse marine hosts. Sci. Rep. 7, 40579 (2017)."),[55](https://www.nature.com/articles/s41579-024-01015-3#ref-CR55 "Tandon, K. et al. Comparative genomics: dominant coral-bacterium Endozoicomonas acroporae metabolizes dimethylsulfoniopropionate (DMSP). ISME J. 14, 1290–1303 (2020)."). Notably, many coral species associate with multiple Endozoicomonas phylotypes, the functional significance of which is not well understood[28](https://www.nature.com/articles/s41579-024-01015-3#ref-CR28 "Buitrago-López, C. et al. Disparate population and holobiont structure of pocilloporid corals across the Red Sea gradient demonstrate species-specific evolutionary trajectories. Mol. Ecol. 32, 2151–2173 (2023)."). However, some evidence points to differing biogeographic patterns, which may indicate the presence of local variants that are fine-tuned to specific envi.ronmental conditions[28](https://www.nature.com/articles/s41579-024-01015-3#ref-CR28 "Buitrago-López, C. et al. Disparate population and holobiont structure of pocilloporid corals across the Red Sea gradient demonstrate species-specific evolutionary trajectories. Mol. Ecol. 32, 2151–2173 (2023)."),[35](https://www.nature.com/articles/s41579-024-01015-3#ref-CR35 "Neave, M. J. et al. Differential specificity between closely related corals and abundant Endozoicomonas endosymbionts across global scales. ISME J. 11, 186–200 (2017)."). For instance, whereas the genus Pocillopora harbours a globally distributed Endozoicomonas, the coral genera Porites and Stylophora harbour site-specific phylotypes, which illustrates host differences in microbiome specificity and flexibility[25](https://www.nature.com/articles/s41579-024-01015-3#ref-CR25 "Hochart, C. et al. Ecology of Endozoicomonadaceae in three coral genera across the Pacific Ocean. Nat. Commun. 14, 3037 (2023)."),[35](https://www.nature.com/articles/s41579-024-01015-3#ref-CR35 "Neave, M. J. et al. Differential specificity between closely related corals and abundant Endozoicomonas endosymbionts across global scales. ISME J. 11, 186–200 (2017).").
+
+    -   f\. Rhodobacteraceae
+
+        > The alphaproteobacterial genus *Ruegeria* in the family Rhodobacteraceae owing to its presumed interactions with other bacteria, Symbiodiniaceae and coral^[59](https://www.nature.com/articles/s41579-024-01015-3#ref-CR59 "Raina, J.-B., Tapiolas, D., Willis, B. L. & Bourne, D. G. Coral-associated bacteria and their role in the biogeochemical cycling of sulfur. Appl. Environ. Microbiol. 75, 3492–3501 (2009)."),[60](https://www.nature.com/articles/s41579-024-01015-3#ref-CR60 "Nissimov, J., Rosenberg, E. & Munn, C. B. Antimicrobial properties of resident coral mucus bacteria of Oculina patagonica. FEMS Microbiol. Lett. 292, 210–215 (2009).")^. *Ruegeria* spp. are associated with many coral species^[49](https://www.nature.com/articles/s41579-024-01015-3#ref-CR49 "Huggett, M. J. & Apprill, A. Coral microbiome database: integration of sequences reveals high diversity and relatedness of coral-associated microbes. Environ. Microbiol. Rep. 11, 372–385 (2019).")^ and constitute one of the few lineages that seem to consistently increase their relative abundance in corals under various stressors, including disease.
+
+    -   g\. Alteromonas
+
+    -   g\. Paracoccus
+
+    -   g\. Vibrio
+
+-   Bacteroidota
+
+-   Bacillota
+
+-   Cyanobacteriota

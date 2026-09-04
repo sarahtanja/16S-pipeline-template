@@ -1,0 +1,271 @@
+---
+title: "Conda Environment Setup for QIIME2"
+author: "Sarah Tanja"
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools: 
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = TRUE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "", # Prevents appending '##' to beginning of lines in code output
+  dev = "jpeg",
+  dpi = 600,
+  fig.retina = 2)        
+```
+
+# Install miniconda
+
+Installation instruction for miniconda are [here](https://www.anaconda.com/docs/getting-started/miniconda/install#linux) - create a new directory named "miniconda3" in your home directory. - download the Linux Miniconda installation script for your chosen chip architecture and save the script as miniconda.sh in the miniconda3 directory. - run the miniconda.sh installation script in silent mode using bash. - remove the miniconda.sh installation script file after installation is complete.
+
+```{r, engine='bash'}
+echo "SHELL: $SHELL"
+echo "whoami: $(whoami)"
+echo "uname -a"
+echo "pwd"
+echo $0
+ps -p $$    # what process is your current shell?
+```
+
+```{r}
+cat /proc/version
+```
+
+> For Linux
+
+```{r, engine='bash'}
+mkdir -p ~/miniconda3
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh
+bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+rm ~/miniconda3/miniconda.sh
+```
+
+> For Windows Powershell
+
+```{r, engine='bash'}
+Invoke-WebRequest -Uri "https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe" -outfile ".\miniconda.exe"
+Start-Process -FilePath ".\miniconda.exe" -ArgumentList "/S" -Wait
+del .\miniconda.exe
+```
+> For Windows Command Prompt
+
+```{r, engine='bash'}
+curl https://repo.anaconda.com/miniconda/Miniconda3-latest-Windows-x86_64.exe -o .\miniconda.exe
+start /wait "" .\miniconda.exe /S
+del .\miniconda.exe
+```
+
+After installing Miniconda make sure you're running the latest version of `conda`.
+
+```{r, engine='bash'}
+conda update conda
+```
+
+# Install QIIME2 as a conda environment
+
+Here I'm installing qiime2 version 2023.9 because it's the same one used by the Salipante Lab ...but it is using python 3.8 and picrust needs python 3.9 so there is a incompatible package conflict
+
+## 2023.5
+
+```{r create-qiime-2023.5, engine='bash'}
+wget https://data.qiime2.org/distro/core/qiime2-2023.5-py38-linux-conda.yml
+conda env create -n qiime2-2023.5 --file qiime2-2023.5-py38-linux-conda.yml
+rm qiime2-2023.5-py38-linux-conda.yml
+```
+
+## 2023.9
+
+::: callout-note
+Use this version if possible because it's the same one the Salipante Lab is using!
+:::
+
+```{r create-qiime-2023.9, engine='bash'}
+conda env create \
+  --name qiime2-amplicon-2023.9 \
+  --file https://raw.githubusercontent.com/qiime2/distributions/refs/heads/dev/2023.9/amplicon/released/qiime2-amplicon-ubuntu-latest-conda.yml
+```
+
+## 2024.4
+
+```{r create-qiime-2024.4, engine='bash'}
+conda env create \
+  --name qiime2-amplicon-2024.2 \
+  --file https://raw.githubusercontent.com/qiime2/distributions/refs/heads/dev/2024.2/amplicon/released/qiime2-amplicon-ubuntu-latest-conda.yml
+```
+
+# Activate qiime2 environment in R
+
+```{r load-qiime-env, eval=TRUE}
+use_condaenv(condaenv = "qiime2-amplicon-2023.9", conda = "/home/shared/8TB_HDD_02/stanja/miniconda3/condabin/conda")
+
+# Check successful env loading
+py_config()
+```
+
+If this is successful, the first line of output should show that the Python environment being used is the one in your conda environment path.
+
+Your conda and qiime environments should be listed in your \$PATH:
+
+```{r test-path, engine='bash'}
+echo $PATH
+```
+
+
+
+# Troubleshooting
+
+
+
+
+
+```{r, engine='bash'}
+# Use the full path once to prove it exists
+~/miniconda3/bin/conda --version
+
+# Accept terms of service (tos)
+# If needed, use full path: ~/miniconda3/bin/conda ...
+~/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+~/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+```
+
+> If you’re on Windows RStudio (Desktop) but Miniconda is on Linux/WSL... Your bash chunks might be using Windows Git-Bash, not the Linux bash that has ~/miniconda3. Point knitr to the Linux bash first.
+
+```{r}
+# Use WSL/Linux bash for bash chunks
+knitr::opts_chunk$set(engine = "bash",
+                      engine.path = list(bash = "/usr/bin/bash"))
+```
+
+
+```{r, engine='bash'}
+echo "Bash path: $(command -v bash)"
+uname -a
+```
+
+> Make conda available in all future {engine='bash'} chunks in this script (run this in an R chunk)
+
+```{r}
+# R code (not bash!)
+writeLines('source "$HOME/miniconda3/etc/profile.d/conda.sh"', "~/.bash_conda_rc")
+Sys.setenv(BASH_ENV = "~/.bash_conda_rc")
+```
+
+```{r, engine='bash'}
+which bash
+uname -a
+echo "$HOME"
+conda --version
+
+```
+```{r, engine='bash'}
+set -e
+
+echo "Bash: $(command -v bash)"
+echo "HOME: $HOME"
+
+# --- Sanity: do we have these files?
+ls -l "$HOME/miniconda3" || true
+ls -l "$HOME/miniconda3/bin/conda" "$HOME/miniconda3/condabin/conda" || true
+
+# 1) Preferred: evaluate conda's shell hook into THIS shell
+if [ -x "$HOME/miniconda3/bin/conda" ]; then
+  echo "[1] Trying: conda shell hook"
+  __conda_setup="$("$HOME/miniconda3/bin/conda" shell.bash hook 2>/dev/null)" && eval "$__conda_setup" && unset __conda_setup || true
+fi
+
+# 2) Fallback: source conda.sh if present
+if ! command -v conda >/dev/null 2>&1 && [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+  echo "[2] Trying: source conda.sh"
+  # shellcheck disable=SC1090
+  source "$HOME/miniconda3/etc/profile.d/conda.sh"
+fi
+
+# 3) Last-resort: put conda *and* condabin on PATH
+if ! command -v conda >/dev/null 2>&1; then
+  echo "[3] Adding PATH fallbacks"
+  export PATH="$HOME/miniconda3/condabin:$HOME/miniconda3/bin:$PATH"
+fi
+
+echo "conda on PATH? -> $(command -v conda || echo 'no')"
+conda --version
+
+```
+```{r}
+# Ensure knitr uses WSL bash explicitly
+knitr::opts_chunk$set(engine.path = list(bash = "/usr/bin/bash"))
+
+# Auto-init conda for every non-interactive bash spawned by R
+# (bash reads BASH_ENV for non-interactive shells)
+lines <- c(
+  # 1) Try shell hook (best)
+  '__conda_setup="$("$HOME/miniconda3/bin/conda" shell.bash hook 2>/dev/null)" && eval "$__conda_setup" && unset __conda_setup || true',
+  # 2) Fallback to conda.sh
+  '[ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ] && source "$HOME/miniconda3/etc/profile.d/conda.sh" || true',
+  # 3) PATH fallback
+  'export PATH="$HOME/miniconda3/condabin:$HOME/miniconda3/bin:$PATH"'
+)
+writeLines(lines, "~/.bash_conda_rc")
+Sys.setenv(BASH_ENV = "~/.bash_conda_rc")
+
+```
+
+
+```{r, engine='bash'}
+# Tell conda to set itself up for future shells
+~/miniconda3/bin/conda init bash
+
+# Reload your shell config so `conda` works without restarting
+source ~/.bashrc
+
+# 3) Now this should work
+conda update -n base conda
+
+```
+
+After installiong Miniconda make sure you're running the latest version of `conda`.
+
+```{r, engine='bash'}
+conda update conda
+```
+```{r, engine='bash'}
+echo "which conda: $(command -v conda || echo 'NONE')"
+ls -l "$HOME/miniconda3/bin/conda" "$HOME/miniconda3/condabin/conda" || true
+head -n1 "$HOME/miniconda3/bin/conda" || true
+ls -l "$HOME/miniconda3/bin/python"* || true
+
+```
+
+```{r}
+# Ensure knitr uses WSL bash (you are, but explicit is fine)
+knitr::opts_chunk$set(engine.path = list(bash = "/usr/bin/bash"))
+
+# Put Miniconda first on PATH for all child processes (incl. bash chunks)
+Sys.setenv(PATH = paste("/home/sarahtanja/miniconda3/bin",
+                        "/home/sarahtanja/miniconda3/condabin",
+                        Sys.getenv("PATH"), sep = ":"))
+
+```

@@ -1,0 +1,1438 @@
+---
+title: "Maaslin3 Differential abundance and prevalence testing on PICRUSt2 full functional profile output of predicted MetaCyc metabolic pathways"
+author: "Sarah Tanja"
+date: 2026-04-30
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools: 
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = FALSE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "") # Prevents appending '##' to beginning of lines in code output)        
+```
+
+# Background
+
+> Predicted pathway abundances were inferred from ASV sequences using
+> PICRUSt2 and compared among taxa associated with PVC leachate exposure
+> You are modeling predicted function from taxonomy, so you are not
+> directly measuring function but rather inferring it based on the
+> taxonomy of the microbes present. This is a common approach in
+> microbiome studies when direct functional measurements (like
+> metagenomics or metatranscriptomics) are not available. “Predicted
+> microbial functional potential shifted…”
+
+note to self.. can't use qiime2R on windows so go to raven but can't
+update raven r version (needed for maaslin) so head back to minerva to
+run maaslin3 \# Load libraries
+
+```{r, eval=TRUE}
+library(tidyverse)
+library(qiime2R)
+library(maaslin3)
+```
+
+# Set paths
+
+```{r}
+metadata_path <- "../../metadata/meta.csv"
+output_path <- "../../output/picrust2"
+fig_path <- "../../output/figs"
+```
+
+# Load pathway abundance table
+
+```{r}
+path <- read_tsv("../../output/picrust2/envrun/pathways_out/path_abun_unstrat.tsv.gz")
+```
+
+Make pathway names rownames and remove the pathway column
+
+```{r}
+path <- path %>% 
+  column_to_rownames(var = "pathway") %>% 
+  as.data.frame()
+```
+
+Transpose so rownames are samples and columns are pathways
+
+```{r}
+path <- t(path)
+dim(path)
+```
+
+We have 63 samples and 547 pathways to run differential
+abundance/prevalence testing on in MaAsLin3. Our 63 samples must match
+our metadata!
+
+## Load metadata
+
+```{r}
+# Load metadata
+metadata <- read_csv(metadata_path)
+
+# set factors
+metadata <- metadata %>% 
+  mutate(
+    collection_date = as.Date(collection_date, format = "%d-%b-%Y"),
+    stage    = factor(stage,    levels = c("cleavage", "prawnchip", "earlygastrula"), ordered = TRUE),
+    leachate = factor(leachate, levels = c("control", "low", "mid", "high"),        ordered = TRUE),
+    spawn_night = factor(
+      collection_date,
+      levels  = as.Date(c("06-Jul-2024", "07-Jul-2024", "08-Jul-2024"), format = "%d-%b-%Y"),
+      labels  = c("July 6th", "July 7th", "July 8th"),
+      ordered = TRUE
+    )
+  )
+```
+
+```{r}
+# make samples rownames
+meta <- metadata %>% 
+  column_to_rownames(var = "sample_id") %>% 
+  as.data.frame()
+
+# View metadata structure
+str(meta)
+```
+
+## Run MaAsLin3
+
+```{r maaslin-full}
+#set.seed(05032026)
+#mp <- maaslin3(
+#  input_data = path,
+#  input_metadata = meta,
+#  output = file.path(output_path, "maaslin_metacycpaths"),
+#  formula = ~ leachate*hpf + (1|spawn_night),
+#  verbosity = 'ERROR',
+#  cores = 3, 
+#  plot_associations = FALSE, 
+#  save_models = TRUE
+#)
+```
+
+```{r sig-paths}
+sig_paths <- read_tsv(file.path(output_path, "maaslin_metacycpaths/significant_results.tsv"))
+```
+
+.L Does the response rise steadily? .Q Does it peak in middle doses? .C
+Does it show a more complex non-monotonic pattern?
+
+leachate
+
+```{r sig-leachate}
+sig_leachate <- sig_paths %>% 
+  filter(metadata == "leachate") %>% 
+  arrange(qval_joint)
+
+length(unique(sig_leachate$feature))
+unique(sig_leachate$feature) 
+```
+
+```{r}
+prev_leachate <- sig_leachate %>% 
+  filter(model == "prevalence")
+
+length(unique(prev_leachate$feature))
+
+abun_leachate <- sig_leachate %>% 
+  filter(model == "abundance")
+
+length(unique(abun_leachate))
+```
+
+```{r}
+paste0(
+  "Features significant for prevalence but not abundance: ",
+  paste(
+    setdiff(prev_leachate$feature,
+            abun_leachate$feature),
+    collapse = ", "
+  )
+)
+
+paste0(
+  "Features significant for abundance but not prevalence: ",
+  paste(
+    setdiff(abun_leachate$feature,
+            prev_leachate$feature),
+    collapse = ", "
+  )
+)
+
+paste0(
+  "Features significant for both abundance and prevalence: ",
+  paste(
+    intersect(abun_leachate$feature,
+              prev_leachate$feature),
+    collapse = ", "
+  )
+)
+```
+
+## Methanogenesis
+
+### PWY-1882
+
+[*superpathway of C1 compounds oxidation to
+CO2*](https://metacyc.org/pathway?orgid=META&id=PWY-1882)
+
+Pathway Summary Methylotrophic bacteria are aerobic bacteria that
+utilize one-carbon compounds more reduced than formate as sources of
+carbon and energy, and assimilate formaldehyde as a major source of
+cellular carbon \[Hanson96\]. Methylotrophic bacteria utilize a variety
+of different one-carbon compounds including methane (see methane
+oxidation to methanol I), methanol, methylated amines, halomethanes and
+methylated compounds containing sulfur. The common product of these
+oxidation reactions is formaldehyde, which is either oxidized to CO2 via
+formate, or assimilated (see formaldehyde assimilation and formaldehyde
+oxidation pathways).
+
+Note: This is a chimeric pathway, comprising reactions from multiple
+organisms, and typically will not occur in its entirety in a single
+organism. The taxa listed here are likely to catalyze only subsets of
+the reactions depicted in this pathway.
+
+Please note: This superpathway integrates several base pathways that are
+found in different methylotrophic bacteria, for the purpose of
+displaying the different routes found in the biosphere in a single
+general diagram. There may be no single organism that possesses all of
+these pathways.
+
+For more information about the pathways and enzymes shown in here,
+please see the individual pathways that make up this superpathway.
+
+### PWY-5209
+
+[*methyl-coenzyme M oxidation to CO2
+I*](https://metacyc.org/pathway?orgid=META&id=PWY-5209)
+
+Pathway Summary General Background Methanogenesis, the biological
+production of methane, is an anaerobic respiration process carried out
+by the methanogens, a group of microorganisms belonging to the Archaea
+domain. These organisms account for most of the biogenic methane
+production, which is estimated at 5x1014 g of methane per year.
+
+Methanogenic pathways utilize a small group of fermentation products
+formed by other anaerobes as electron donors and acceptors. Typical
+electron donors are H2, formate, and one of several alcohols, such as
+ethanol, propan-2-ol, butan-2-ol, or 3-methylbutanol. Typical electron
+acceptors are C-1 substrates (carbon-containing compounds that lack
+carbon-carbon bonds) such as CO2, methanol, and several different
+methylamines and methylsulfides. Acetate is a special methanogenic
+substrate, as it serves as both the electron donor and the electron
+acceptor after being split into two parts (see methanogenesis from
+acetate). Most of the methane in nature originates from acetate.
+
+Four main types of methanogenic pathways have been characterized: the
+pathway from H2 and CO2 (see methanogenesis from H2 and CO2), the
+aceticlastic pathway from acetate (see methanogenesis from acetate),
+methanogenesis from methylated compounds, and methanogenesis from
+methoxylated aromatic compounds (see methanogenesis from methoxylated
+aromatic compounds). All pathways involve the transfer of a methyl group
+from the terminal acceptor to coenzyme M, forming methyl-CoM, which is
+then disproportionated into methane and CO2: One in four methyl-CoM
+molecules is oxidized to CO2 (see methyl-coenzyme M oxidation to CO2 I),
+providing the six electrons that are required for the reduction of three
+methyl-CoM molecules to methane (see methyl-coenzyme M reduction to
+methane) \[Keltjens93, Pritchett05\].
+
+Methanogenic pathways do not afford substrate level phosphorylation.
+Moreover, in the aceticlastic pathway an ATP molecule is spent for
+acetyl-CoA formation. Instead, ATP is formed by a chemiosmotic
+mechanism. The CoB-CoM heterodisulfide, which is produced during methane
+formation (see methyl-coenzyme M reduction to methane), is restored into
+coenzyme B and coenzyme M by the action of two membrane-bound
+dehydrogenases (F420H2:methanophenazine dehydrogenase and F420
+non-reducing hydrogenase I), both of which translocate protons across
+the memberane (see coenzyme B/coenzyme M regeneration I
+(methanophenazine-dependent)). The translocation results in a proton
+gradient that energizes ATP synthase enzymes.
+
+About This Pathway
+
+This pathway covers the anaerobic oxidation of methyl-CoM to CO2. It
+should be noted that most of the enzymes in this pathway catalyze
+reversible reactions, and operate in different directions in the two
+branchs of the pathway.
+
+One of the differences between the methanogens and other methylotrophic
+bacteria is that the methanogens often have modified versions of the
+tetrahydromethanopterin cofactor and its derivatives. Some organisms
+produce only tetrahydromethanopterin (see methyl-coenzyme M oxidation to
+CO2 II). Some methanogens that belong to the Methanosarcinales and
+Methanococcales orders form tetrahydrosarcinapterin, which is generated
+from tetrahydromethanopterin by the addition of a glutamate residue
+\[vanBeelen84\] (this pathway). Members of the genus Methanogenium
+contain tatiopterin, which is different from tetrahydrosarcinapterin in
+having an additional aspartate in the side chain of the molecule, and in
+not having the 7-methyl group in the pterin moiety
+\[RaemakersFranke90\].
+
+## CO2 Fixation
+
+### PWY-7784
+
+[*reductive acetyl coenzyme A pathway II (autotrophic
+methanogens)*](https://metacyc.org/pathway?orgid=META&id=PWY-7784)
+
+Some taxa known to possess this pathway include : [Archaeoglobus
+fulgidus](https://metacyc.org/META/NEW-IMAGE?object=TAX-2234),
+[Methanosarcina
+thermophila](https://metacyc.org/META/NEW-IMAGE?object=TAX-2210),
+[Methanothermobacter
+thermautotrophicus](https://metacyc.org/META/NEW-IMAGE?object=TAX-145262)
+
+Expected Taxonomic Range:
+[Archaea](https://metacyc.org/META/NEW-IMAGE?object=TAX-2157),
+[Methanobacteria](https://metacyc.org/META/NEW-IMAGE?object=TAX-183925),
+[Methanococci](https://metacyc.org/META/NEW-IMAGE?object=TAX-183939),
+[Methanomicrobia](https://metacyc.org/META/NEW-IMAGE?object=TAX-224756),
+[Methanopyri](https://metacyc.org/META/NEW-IMAGE?object=TAX-183988)
+
+**Pathway Summary**
+
+This pathway describes autotrophic production of
+[acetyl-CoA](https://metacyc.org/compound?orgid=META&id=ACETYL-COA) from
+two [CO~2~](https://metacyc.org/compound?orgid=META&id=CARBON-DIOXIDE)
+molecules. The pathway was originally documented in homoacetogenic
+[*Clostridia*](https://metacyc.org/META/NEW-IMAGE?object=TAX-186801)
+\[[Jansen82](https://metacyc.org/META/reference.html?type=CITATION-REFERENCE&object=%5bJansen82%5d)\]
+(see [reductive acetyl coenzyme A pathway I (homoacetogenic
+bacteria)](https://metacyc.org/pathway?orgid=META&id=CODH-PWY)). In that
+pathway the methyl carbon of
+[acetyl-CoA](https://metacyc.org/compound?orgid=META&id=ACETYL-COA) is
+derived from CO~2~ via the reductions of the tetrahydrofolate route,
+while the carbonyl group is obtained via reduction of a second CO~2~ via
+CO.
+
+In methanogens, a modified pathway exists, where the methyl group of
+[acetyl-CoA](https://metacyc.org/compound?orgid=META&id=ACETYL-COA) is
+derived from CO~2~ via the tetrahydromethanopterin route, which is also
+a part of the of methanogenic pathway (see [methanogenesis from H~2~ and
+CO~2~](https://metacyc.org/pathway?orgid=META&id=METHANOGENESIS-PWY)).
+
+The evidence for the existence of this pathway in methanogens derives
+from three observations:
+
+1\. No other known autotrophic pathways exist in these organisms
+\[[Zeikus77](http://www.ncbi.nlm.nih.gov/pubmed/914779),
+[Daniels78](http://www.ncbi.nlm.nih.gov/pubmed/101522),
+[Weimer78](http://www.ncbi.nlm.nih.gov/pubmed/718369),
+[Shieh87](http://www.ncbi.nlm.nih.gov/pubmed/3667534)\].
+
+2\. Isotopic labeling of whole cells show that acetate or acetyl-CoA is
+the first product of CO~2~ fixation
+\[[Fuchs80](http://www.springerlink.com/content/j333123631m75100/fulltext.pdf),
+[Ruehlemann85](http://link.springer.com/10.1007/BF00428856)\].
+
+3\. The enzymatic activities associated with this pathway were detected
+in cell extracts
+\[[Diekert78](http://www.ncbi.nlm.nih.gov/pubmed/711675),
+[Drake81](http://www.ncbi.nlm.nih.gov/pubmed/7287757),
+[Stupperich83](http://www.ncbi.nlm.nih.gov/pubmed/6840273),
+[Lange87](http://www.ncbi.nlm.nih.gov/pubmed/3102234)\].
+
+The pathway starts like the methanogenic pathway with activation of one
+molecule of
+[CO~2~](https://metacyc.org/compound?orgid=META&id=CARBON-DIOXIDE) by
+the unique cofactor
+[methanofuran](https://metacyc.org/compound?orgid=META&id=Methanofurans),
+resulting in the formation of [a
+formylmethanofuran](https://metacyc.org/compound?orgid=META&id=Formyl-methanofurans).
+The formyl group is then transferred to another cofactor,
+[tetrahydromethanopterin](https://metacyc.org/compound?orgid=META&id=THMPT).
+A succession of transformations, catalyzed by
+[methenyltetrahydromethanopterin
+cyclohydrolase](https://metacyc.org/gene?orgid=META&id=MCHMAUTO-MONOMER),
+[H~2~-forming methylene-H~4~MPT
+dehydrogenase](https://metacyc.org/gene?orgid=META&id=HMDMAUTO-MONOMER),
+and finally [F~420~-dependent methylene-H~4~MPT
+reductase](https://metacyc.org/gene?orgid=META&id=MERMAUTO-MONOMER),
+which depends on the methanogenic cofactor [a factor
+420](https://metacyc.org/compound?orgid=META&id=Factor-420), results in
+the formation of
+[5-methyltetrahydromethanopterin](https://metacyc.org/compound?orgid=META&id=METHYL-THMPT).
+
+This last compound serves as the branch point between methanogenesis and
+acyl-CoA biosynthesis. During methanogenesis, it serves its methyl group
+to [coenzyme M](https://metacyc.org/compound?orgid=META&id=CoM) in a
+reaction catalyzed by [EC 7.2.1.4, tetrahydromethanopterin
+*S*-methyltransferase](https://metacyc.org/META/NEW-IMAGE?type=EC-NUMBER&object=EC-7.2.1.4).
+However, during acetyl-CoA biosynthesis it transfers the methyl group to
+a corrinoid protein that forms a part of acetyl-CoA synthase. This
+transfer is likely catalyzed by a homolog of [EC 2.1.1.258,
+5-methyltetrahydrofolate—corrinoid/iron-sulfur protein
+*Co*-methyltransferase](https://metacyc.org/META/NEW-IMAGE?type=EC-NUMBER&object=EC-2.1.1.258).
+This methyl group then reacts with the CO formed by [EC 1.2.7.4,
+anaerobic carbon monoxide
+dehydrogenase](https://metacyc.org/META/NEW-IMAGE?type=EC-NUMBER&object=EC-1.2.7.4),
+producing
+[acetyl-CoA](https://metacyc.org/compound?orgid=META&id=ACETYL-COA).
+
+[Acetyl-CoA](https://metacyc.org/compound?orgid=META&id=ACETYL-COA) is
+used as the precursor of carbohydrate synthesis, as described in
+[gluconeogenesis II (*Methanobacterium
+thermoautotrophicum*)](https://metacyc.org/pathway?orgid=META&id=PWY-6142).
+
+It should be noted that the non-methanogenic archaeon [*Archaeoglobus
+fulgidus*](https://metacyc.org/META/NEW-IMAGE?object=TAX-2234) also
+utilizes this pathway, but converts the formed acetyl-CoA to acetate in
+a reaction that produces ATP. Acetate is the sole product produced by
+that organism in the absence of sulfate
+\[[Musfeldt02](http://www.ncbi.nlm.nih.gov/pubmed/11790732),
+[IngramSmith07](http://www.ncbi.nlm.nih.gov/pubmed/17350930),
+[Henstra07](http://www.ncbi.nlm.nih.gov/pubmed/17564616),
+[Ferry15](http://www.ncbi.nlm.nih.gov/pubmed/26068860)\].
+
+## Biosynthesis carboxylic acid degradation/biosynthesis
+
+### PWY-7039
+
+[phosphatidate metabolism, as a signaling
+molecule](https://metacyc.org/pathway?orgid=META&id=PWY-7039#SUMMARY)
+
+Some taxa known to possess this pathway include : [Arabidopsis thaliana
+col](https://metacyc.org/META/NEW-IMAGE?object=ORG-5993)[![Inferred from
+experiment](https://metacyc.org/EV-EXP.png){alt="Inferred from experiment"}](javascript:popupUrlContent('/META/reference.html?type=EVIDENCE-GLYPH&object=((PWY-7039+SPECIES+ORG-5993)+%2216081412:EV-EXP:3544209407:zhang%22)%27,%20400,%20400,%20%27Evidence%27,%20this))
+\[[GomezMerino05](http://www.ncbi.nlm.nih.gov/pubmed/16081412)\],
+[Catharanthus
+roseus](https://metacyc.org/META/NEW-IMAGE?object=TAX-4058), [Triticum
+aestivum](https://metacyc.org/META/NEW-IMAGE?object=TAX-4565)
+
+Expected Taxonomic Range:
+[Viridiplantae](https://metacyc.org/META/NEW-IMAGE?object=TAX-33090)
+
+**Pathway Summary**
+
+[1,2-Diacyl-*sn*-glycerol-3-phosphate](https://metacyc.org/compound?orgid=META&id=L-PHOSPHATIDATE),
+often referred to as phosphatidate (PA), is a class of compounds
+consisting of a
+[glycerol](https://metacyc.org/compound?orgid=META&id=GLYCEROL)
+backbone, a (usually) saturated fatty acid bonded to carbon 1, a
+(usually) unsaturated fatty acid bonded to carbon 2, and a phosphate
+group esterified to carbon 3.
+
+PA is an intermediate in structural lipid biosynthesis (see
+[superpathway of phospholipid biosynthesis II
+(plants)](https://metacyc.org/pathway?orgid=META&id=PHOSLIPSYN2-PWY) and
+[diacylglycerol and triacylglycerol
+biosynthesis](https://metacyc.org/pathway?orgid=META&id=TRIGLSYN-PWY)),
+and an important second messenger. In plants, PA is rapidly and
+transiently generated in response to a number of biotic (pathogens) and
+abiotic (such as cold and salt stress) stimulates (reviewed in
+\[[Testerink05](http://www.ncbi.nlm.nih.gov/pubmed/16023886)\]). Using a
+so-called differential labeling method, it was shown that there are two
+pathways, the phospholipase C and diacylglycerol kinase pathway (PLC
+pathway), and the phospholipase D pathway (PLD pathway), that generate
+PA as a signaling molecule in response to environmental signals
+(reviewed in
+\[[Arisz09](http://www.ncbi.nlm.nih.gov/pubmed/19394438)\]). In the PLC
+pathway, phosphatidylinositol-4,5-bisphosphate, derived from
+phosphatidylinositol, is converted to diacylglycerol which is rapidly
+phosphorylated to PA. In the PLD pathway, PA is directly formed from
+structural lipid phosphatidylcholine. The two pathways are
+differentially activated in response to different stimulates
+\[[Testerink05](http://www.ncbi.nlm.nih.gov/pubmed/16023886)\]. Once
+formed, PA can be further converted to diacylglycerol pyrophosphate
+(DGPP) by PA kinase (reviewed in
+\[[vanSchooten06](http://www.ncbi.nlm.nih.gov/pubmed/16469533)\]). This
+is a possible mechanism in PA attenuation. Interestingly, mammals do not
+seem to have PA kinase activity
+
+### PWY-6165
+
+\[*chorismate biosynthesis II (archaea)*\](chorismate biosynthesis II
+(archaea)
+
+Some taxa known to possess this pathway include : [Methanocaldococcus
+jannaschii](https://metacyc.org/META/NEW-IMAGE?object=TAX-2190),
+[Methanococcus
+maripaludis](https://metacyc.org/META/NEW-IMAGE?object=TAX-39152)
+
+Expected Taxonomic Range:
+[Archaea](https://metacyc.org/META/NEW-IMAGE?object=TAX-2157)
+
+**Pathway Summary**
+
+[Chorismate](https://metacyc.org/compound?orgid=META&id=CHORISMATE) is
+an important intermediate that leads to the biosynthesis of several
+essential metabolites, including aromatic amino acids, vitamins E and K,
+ubiquinone and certain siderophores
+\[[Bentley90](http://www.ncbi.nlm.nih.gov/pubmed/2279393)\].
+[chorismate](https://metacyc.org/compound?orgid=META&id=CHORISMATE) is
+synthesized in 5 steps from
+[3-dehydroquinate](https://metacyc.org/compound?orgid=META&id=DEHYDROQUINATE)
+(see [chorismate biosynthesis from
+3-dehydroquinate](https://metacyc.org/pathway?orgid=META&id=PWY-6163)).
+
+In most organisms,
+[3-dehydroquinate](https://metacyc.org/compound?orgid=META&id=DEHYDROQUINATE)
+is synthesized from [D-erythrose
+4-phosphate](https://metacyc.org/compound?orgid=META&id=ERYTHROSE-4P) in
+two steps (see [3-dehydroquinate biosynthesis
+I](https://metacyc.org/pathway?orgid=META&id=PWY-6164)). However, the
+genomes of the archaea contain no orthologs for the genes that encode
+these two enzymes. Instead, at least the euryarchaeota appear to utilize
+an alternative pathway in which
+[3-dehydroquinate](https://metacyc.org/compound?orgid=META&id=DEHYDROQUINATE)
+is synthesized from [6-deoxy-5-ketofructose
+1-phosphate](https://metacyc.org/compound?orgid=META&id=CPD-10791) and
+[L-aspartate
+4-semialdehyde](https://metacyc.org/compound?orgid=META&id=L-ASPARTATE-SEMIALDEHYDE)
+\[[White04](http://www.ncbi.nlm.nih.gov/pubmed/15182204)\]. These two
+compounds are first condensed to form
+[2-amino-3,7-dideoxy-D-threo-hept-6-ulosonate](https://metacyc.org/compound?orgid=META&id=CPD-10792),
+which cyclizes to
+[3-dehydroquinate](https://metacyc.org/compound?orgid=META&id=DEHYDROQUINATE).
+From
+[3-dehydroquinate](https://metacyc.org/compound?orgid=META&id=DEHYDROQUINATE)
+and on to
+[chorismate](https://metacyc.org/compound?orgid=META&id=CHORISMATE), the
+archaeal pathway appears to be identical to the bacterial pathway
+\[[Porat04](http://www.ncbi.nlm.nih.gov/pubmed/15262931),
+[Porat06](http://www.ncbi.nlm.nih.gov/pubmed/17010158)\].
+
+It has been shown that the source for [6-deoxy-5-ketofructose
+1-phosphate](https://metacyc.org/compound?orgid=META&id=CPD-10791) is
+glycolytic [β-D-fructofuranose
+1,6-bisphosphate](https://metacyc.org/compound?orgid=META&id=FRUCTOSE-16-DIPHOSPHATE),
+which is condensed with
+[methylglyoxal](https://metacyc.org/compound?orgid=META&id=METHYL-GLYOXAL)
+\[[White06](http://www.ncbi.nlm.nih.gov/pubmed/17014089)\]. The latter
+is believed to be produced by a spontaneous reaction from
+[D-glyceraldehyde
+3-phosphate](https://metacyc.org/compound?orgid=META&id=GAP), which is
+known to be unstable at temperatures above 60°C, and to decompose to
+[methylglyoxal](https://metacyc.org/compound?orgid=META&id=METHYL-GLYOXAL)
+\[[Richard91](http://www.ncbi.nlm.nih.gov/pubmed/2021650),
+[White06](http://www.ncbi.nlm.nih.gov/pubmed/17014089)\].
+
+### PWY-6160
+
+[*3-dehydroquinate biosynthesis II
+(archaea)*](https://metacyc.org/pathway?orgid=META&id=PWY-6160)
+
+Some taxa known to possess this pathway include : Methanocaldococcus
+jannaschii, Methanococcus maripaludis
+
+Expected Taxonomic Range: Archaea
+
+Pathway Summary chorismate is an important intermediate that leads to
+the biosyntrhesis of several essential metabolites, including aromatic
+amino acids, 4-aminobenzoate (PABA), vitamins E and K, ubiquinone and
+certain siderophores \[Bentley90\]. chorismate is synthesized in 5 steps
+from 3-dehydroquinate (see chorismate biosynthesis from
+3-dehydroquinate). In most organisms, 3-dehydroquinate is synthesized
+from D-erythrose 4-phosphate in two steps (see 3-dehydroquinate
+biosynthesis I). However, the genomes of the archaea contain no
+orthologs for the genes that encode these first two steps. Instead,
+archaeabacteria appear to utilize an alternative pathway in which
+3-dehydroquinate is synthesized from 6-deoxy-5-ketofructose 1-phosphate
+and L-aspartate 4-semialdehyde \[White04\]. These two compounds are
+first condensed to form 2-amino-3,7-dideoxy-D-threo-hept-6-ulosonate,
+which cyclizes to 3-dehydroquinate. From 3-dehydroquinate and on to
+chorismate, the archaeal pathway appears to be identical to the
+bacterial pathway \[Porat04, Porat06\].
+
+It has been shown that the source for 6-deoxy-5-ketofructose 1-phosphate
+is glycolytic β-D-fructofuranose 1,6-bisphosphate, which is condensed
+with methylglyoxal \[White06\]. The latter is believed to be produced by
+a spontaneous reaction from D-glyceraldehyde 3-phosphate, which is known
+to be unstable at temperatures above 60°C and to decompose to
+methylglyoxal \[Richard91, White06\].
+
+The product of this pathwy, 3-dehydroquinate, not only feeds the
+shikimate pathway, but is also the source for 4-aminobenzoate, an
+important precursor for the synthesis of tetrahydromethanopterin
+\[Porat06\].
+
+### PWY0-301
+
+[*L-ascorbate degradation I (bacterial,
+anaerobic)*](https://metacyc.org/pathway?orgid=META&id=PWY0-301) Pathway
+Summary General Background L-ascorbate, also known as vitamin C, fulfils
+multiple essential roles in both plants and animals. Being a strong
+reducing agent, it functions as an antioxidant and a redox buffer. It is
+also a cofactor for several enzymes, which are involved in many
+important pathways, including collagen hydroxylation, carnitine
+biosynthesis, norepinephrine biosynthesis, and hormone and tyrosine
+metabolism. In plants L-ascorbate is also implicated in defense against
+pathogens and in control of plant growth and development. A significant
+proportion of a plant's ascorbate is found in the apoplast (the aqueous
+solution permeating the cell walls) \[Green05\].
+
+Under aerobic conditions L-ascorbate is oxidized in cells to
+dehydroascorbate (via the radical monodehydroascorbate radical), which
+can be recycled back to ascorbate by the ascorbate glutathione cycle.
+However, once formed, dehydroascorbate can be further broken down in
+vivo by irreversible reactions, escaping the ascorbate glutathione
+cycle.
+
+Several pathways for the irreversible catabolism of ascorbate have been
+described. Facultatively aerobic bacteria such as Escherichia coli and
+Klebsiella pneumoniae degrade L-ascorbate by different pathways under
+aerobic and anaerobic conditions (see L-ascorbate degradation II
+(bacterial, aerobic) and L-ascorbate degradation I (bacterial,
+anaerobic)). The anaerobic pathway begins with phosphorylation of
+ascorbate (mediated by a PTS-type transporter), while the aerobic
+pathway proceeds via 2,3-didehydro-L-gulonate. Both pathways produce
+D-xylulose 5-phosphate, a centeral metabolite that is fed into the
+pentose phosphate pathway \[Campos08\].
+
+Plants from the Vitaceae family (e.g. grapes) metabolize ascorbate to
+L-tartrate via the intermediates 2-keto-L-gulonate and L-idonate (see
+pathway L-ascorbate degradation IV). The tartrate skeleton is derived
+from carbons 1-4 of L-ascorbate, indicating a cleavage between carbons 4
+and 5 \[Loewus99, DeBolt06\].
+
+The geraniaceous plant Pelargonium crispum metabolizes ascorbate to
+L-tartrate and oxalate via a different pathway, with L-threonate, rather
+than L-idonate, as an intermediate (see pathway L-ascorbate degradation
+III). In this case the tartrate skeleton is derived from carbons 3-6 of
+L-ascorbate, indicating a cleavage between carbons 2 and 3 \[Loewus99,
+Franceschi05\]. Grapes are also known to accumulate oxalate
+\[DeBolt04\], and thus may be using both pathways to generate tartrate.
+
+About This Pathway
+
+Escherichia coli is able to utilize L-ascorbate (vitamin C) as the sole
+source of carbon under anaerobic conditions \[Yew02\].
+
+The ula regulon encodes all of the proteins involved in this pathway and
+is formed by two operons, ulaG and ulaA-F. ulaG encodes an
+L-ascorbate-6-phosphate lactonase, and ulaA-F encodes the three
+components of the L-ascorbate specific PTS enzyme II (L-ascorbate
+specific PTS enzyme IIC component, L-ascorbate specific PTS enzyme IIB
+component, and L-ascorbate specific PTS enzyme IIA component) and three
+catabolic enzymes (UlaDEF).
+
+L-ascorbate is imported and converted to L-ascorbate 6-phosphate by the
+L-ascorbate specific PTS enzyme II \[Zhang03e\]. The intracellular
+L-ascorbate-6-phosphate is subsequently metabolized by UlaG, UlaD, UlaE
+and UlaF to D-D-xylulose 5-phosphate, which can enter central metabolism
+via the non-oxidative branch of the pentose phosphate pathway \[Yew02\].
+
+Expression of the ula regulon is regulated by the L-ascorbate
+6-phosphate-binding repressor UlaR and by cAMP-CRP \[Campos04,
+Garces08\].
+
+Under aerobic conditions an additional operon, yiaK-S, is required to
+catabolize L-ascorbate (see L-ascorbate degradation II (bacterial,
+aerobic)).
+
+## Precursor metabolites
+
+### PWY-5741
+
+[ethylmalonyl-CoA
+pathway](https://metacyc.org/pathway?orgid=META&id=PWY-5741#SUMMARY)
+
+Some taxa known to possess this pathway include : Cereibacter
+sphaeroides, Methylorubrum extorquens AM1, Paracoccus versutus,
+Rhodobacter capsulatus, Rhodospirillum rubrum, Streptomyces coelicolor
+
+Expected Taxonomic Range: Bacteria <bacteria>
+
+Pathway Summary Some organisms utilize organic substrates (such as fatty
+acids, alcohols, esters, as well as waxes, alkenes, and methylated
+compounds) that are metabolized via acetyl-CoA. These organisms need to
+find a way to convert acetyl-CoA, a 2-carbon compound, to a 4-carbon
+compound that could feed their anaplerotic reactions (reactions that
+form metabolic intermediates for biosynthesis). A common solution to the
+problem is the glyoxylate cycle, a modified version of the TCA cycle
+that bypasses those steps in the cycle that lead to a loss of CO2.
+Acetyl-CoA enters the cycle at two steps, and since no carbon escapes it
+in the form of CO2, the output is the 4-carbon compound succinate.
+
+However, many bacteria are known to not contain EC 4.1.3.1, isocitrate
+lyase, the key enzyme of the glyoxylate cycle. These organisms include
+many purple nonsulfur bacteria, such as Cereibacter sphaeroides and
+Rhodospirillum rubrum, and other α-proteobacteria, such as the
+methylotroph Methylorubrum extorquens AM1 and the facultative
+denitrifier Paracoccus versutus. These organisms require a different
+solution to the problem.
+
+One such solution, the ethylmalonyl-CoA pathway, has been discovered in
+Cereibacter sphaeroides. In this pathway a C4-compound, acetoacetyl-CoA,
+derived from two acetyl-CoA molecules, is converted to the C5-compound
+2-methylfumaryl-CoA \[Alber06\]. (2R,3S)-β-methylmalyl-CoA, formed by
+hydration of 2-methylfumaryl-CoA, is cleaved to glyoxylate and
+propanoyl-CoA. Condensation of glyoxylate and another molecule of
+acetyl-CoA yields (S)-malate, while propionyl-CoA is carboxylated to
+succinate via a dedicated pathway.
+
+The key enzyme of the pathway is crotonyl-CoA carboxylase/reductase,
+which simultaneously carboxylates and reduces the 4-carbon compound
+crotonyl-CoA, forming the 5-carbon compound (2S)-ethylmalonyl-CoA.
+
+Another pathway that addresses the same needs, the methylaspartate
+cycle, operates in Halobacteria \[Khomyakova11\].)
+
+### PWY-5109
+
+[*propanoate fermentation to
+2-*methylbutanoate](https://metacyc.org/pathway?orgid=META&id=PWY-5109)
+
+ome taxa known to possess this pathway include : [Ascaris
+lumbricoides](https://metacyc.org/META/NEW-IMAGE?object=TAX-6252),
+[Ascaris suum](https://metacyc.org/META/NEW-IMAGE?object=TAX-6253)
+
+Expected Taxonomic Range:
+[Metazoa](https://metacyc.org/META/NEW-IMAGE?object=TAX-33208)
+
+**Pathway Summary**
+
+[*Ascaris
+lumbricoides*](https://metacyc.org/META/NEW-IMAGE?object=TAX-6252) and
+[*Ascaris suum*](https://metacyc.org/META/NEW-IMAGE?object=TAX-6253) are
+parasitic intestinal helminths whose metabolism is predominantly
+anaerobic \[[Epps50](http://www.ncbi.nlm.nih.gov/pubmed/14774531)\]. The
+organisms ferment glucose to
+[CO~2~](https://metacyc.org/compound?orgid=META&id=CARBON-DIOXIDE) and a
+mixture of products. The major product (about 20%) is
+[2-methylbutanoate](https://metacyc.org/compound?orgid=META&id=CPD-7076)
+\[[Bueding51](http://www.ncbi.nlm.nih.gov/pubmed/14907729)\].
+
+Saz and Weil have found that the precursors for
+[2-methylbutanoate](https://metacyc.org/compound?orgid=META&id=CPD-7076)
+in [*Ascaris
+lumbricoides*](https://metacyc.org/META/NEW-IMAGE?object=TAX-6252) are
+[acetate](https://metacyc.org/compound?orgid=META&id=ACET) and
+[propanoate](https://metacyc.org/compound?orgid=META&id=PROPIONATE)
+\[[Saz60](http://www.ncbi.nlm.nih.gov/pubmed/14442156)\], which are
+produced by the fermentation of either glucose or lactate
+\[[Saz59](http://www.ncbi.nlm.nih.gov/pubmed/13673003),
+[Saz60](http://www.ncbi.nlm.nih.gov/pubmed/14442156)\]. The enzymatic
+steps involved in this process have not been characterized in detail,
+but the authors suggested that the pathway consists of the steps
+illustrated in here, which are based on the labeling patterns observed
+in the study, and on the presence of
+[tiglate](https://metacyc.org/compound?orgid=META&id=CPD-7077) in
+[*Ascaris*](https://metacyc.org/META/NEW-IMAGE?object=TAX-6251) tissues
+\[[Bueding53](http://www.ncbi.nlm.nih.gov/pubmed/13061475)\].
+
+The authors suggest that it is likely that this sequence of reactions
+requires the coenzyme A derivatives, similar to the formation of
+[butanoate](https://metacyc.org/compound?orgid=META&id=BUTYRIC_ACID)
+from [acetate](https://metacyc.org/compound?orgid=META&id=ACET) (see
+[pyruvate fermentation to
+butanoate](https://metacyc.org/pathway?orgid=META&id=CENTFERM-PWY)).
+
+In subsequent work Saz and Weil also showed that two molecules of
+[propanoyl-CoA](https://metacyc.org/compound?orgid=META&id=PROPIONYL-COA)
+may be condensed to form
+[2-methylpentanoate](https://metacyc.org/compound?orgid=META&id=CPD-15866)
+in a similar series of reactions
+\[[Saz62](http://www.ncbi.nlm.nih.gov/pubmed/14497735)\]. A putative
+acyl-CoA transferase produces the free fatty acids. Both
+[2-methylbutanoate](https://metacyc.org/compound?orgid=META&id=CPD-7076)
+and
+[2-methylpentanoate](https://metacyc.org/compound?orgid=META&id=CPD-15866),
+along with [acetate](https://metacyc.org/compound?orgid=META&id=ACET),
+[propanoate](https://metacyc.org/compound?orgid=META&id=PROPIONATE) and
+[succinate](https://metacyc.org/compound?orgid=META&id=SUC) are excreted
+(\[[Komuniecki89](http://www.ncbi.nlm.nih.gov/pubmed/2736251)\] and
+reviewed in \[[Muller12](http://www.ncbi.nlm.nih.gov/pubmed/22688819)\])
+(see pathway [anaerobic energy metabolism (invertebrates,
+mitochondrial)](https://metacyc.org/pathway?orgid=META&id=PWY-7384)).
+
+Unfortunately, most of the enzymes of this pathway have not been
+purified yet from
+[*Ascaris*](https://metacyc.org/META/NEW-IMAGE?object=TAX-6251).
+
+## Aromatic compound degradation
+
+### PWY-6690
+
+[cinnamate and 3-hydroxycinnamate degradation to
+2-hydroxypentadienoate](https://metacyc.org/pathway?orgid=META&id=PWY-6690#SUMMARY)
+
+Some taxa known to possess this pathway include : [Escherichia coli K-12
+substr. MG1655](https://metacyc.org/META/NEW-IMAGE?object=TAX-511145),
+[Rhodococcus
+globerulus](https://metacyc.org/META/NEW-IMAGE?object=TAX-33008)
+
+Expected Taxonomic Range: [Bacteria
+\<bacteria\>](https://metacyc.org/META/NEW-IMAGE?object=TAX-2)
+
+**Pathway Summary**
+
+Phenylpropanoid compounds are abundant in natural environments, and can
+originate from putrefaction of proteins in soil or as breakdown products
+of plant materials such as lignin, various oils, and resins (for the
+biosynthesis of phenylpropanoid compounds, please see [Phenylpropanoid
+Derivative
+Biosynthesis](https://metacyc.org/META/NEW-IMAGE?type=ECOCYC-CLASS&object=PHENYLPROPANOID-SYN)).
+
+Microbial catabolism of phenylpropanoid compounds plays an important
+role in the natural degradation of these compounds. In addition, the
+degradation of several phenylpropanoid compounds is important for
+industrial applications such as wine making, aging, and storage
+\[[Cavin97](http://www.ncbi.nlm.nih.gov/pubmed/9143125)\].
+
+The degradation of
+[cinnamate](https://metacyc.org/compound?orgid=META&id=CPD-674),
+[3-phenylpropanoate](https://metacyc.org/compound?orgid=META&id=3-PHENYLPROPIONATE),
+and their hydroxylated derivatives has been reported in several
+bacteria, including an Acinetobacter sp.
+\[[Dagley65](http://www.ncbi.nlm.nih.gov/pubmed/5881653)\], a
+Pseudomonas sp.
+\[[Andreoni86](http://www.ncbi.nlm.nih.gov/pubmed/3777934),
+[Strickland73](http://www.ncbi.nlm.nih.gov/pubmed/4348920)\], an
+Arthrobacter sp.
+\[[Strickland73](http://www.ncbi.nlm.nih.gov/pubmed/4348920)\],
+[*Escherichia coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562)
+\[[Burlingame83](http://www.ncbi.nlm.nih.gov/pubmed/6345502)\], and
+[*Rhodococcus
+globerulus*](https://metacyc.org/META/NEW-IMAGE?object=TAX-33008)
+\[[Barnes97](http://www.ncbi.nlm.nih.gov/pubmed/9324265)\].
+
+In [*Escherichia
+coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562) this pathway
+is one of only two aromatic-ring-cleavage pathways that are found in the
+organism. The fact that [*Escherichia
+coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562) can degrade
+aromatic acids suggests a wider natural distribution for [*Escherichia
+coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562) than the
+anaerobic environment of the animal gut
+\[[Burlingame83](http://www.ncbi.nlm.nih.gov/pubmed/6345502)\]. The
+enzymes of this pathway can metabolize
+[*trans*-cinnamate](https://metacyc.org/compound?orgid=META&id=CPD-674)
+and
+[2,3-dihydroxy-*trans*-cinnamate](https://metacyc.org/compound?orgid=META&id=CPD-10796)
+as well as
+[3-phenylpropanoate](https://metacyc.org/compound?orgid=META&id=3-PHENYLPROPIONATE)
+and
+[3-(3-hydroxyphenyl)propanoate](https://metacyc.org/compound?orgid=META&id=3-HYDROXYPHENYL-PROPIONATE)
+(see [3-phenylpropanoate and 3-(3-hydroxyphenyl)propanoate degradation
+to
+2-hydroxypentadienoate](https://metacyc.org/pathway?orgid=META&id=HCAMHPDEG-PWY))
+\[[Diaz98](http://www.ncbi.nlm.nih.gov/pubmed/9603882)\].
+
+The pathway ultimately yields
+[fumarate](https://metacyc.org/compound?orgid=META&id=FUM) and
+[2-oxopent-4-enoate](https://metacyc.org/compound?orgid=META&id=OXOPENTENOATE),
+which is further degraded to
+[pyruvate](https://metacyc.org/compound?orgid=META&id=PYRUVATE) and
+[acetyl-CoA](https://metacyc.org/compound?orgid=META&id=ACETYL-COA) as
+described in [2-hydroxypenta-2,4-dienoate
+degradation](https://metacyc.org/pathway?orgid=META&id=PWY-5162). The
+pathway, including the portion that is described in
+[2-hydroxypenta-2,4-dienoate
+degradation](https://metacyc.org/pathway?orgid=META&id=PWY-5162), has
+eight steps, making it one of the longest catabolic sequences known in
+[*Escherichia coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562)
+\[[Burlingame86](http://www.ncbi.nlm.nih.gov/pubmed/3531186),
+[Bugg93](http://www.ncbi.nlm.nih.gov/pubmed/8399388),
+[Ferrandez97](http://www.ncbi.nlm.nih.gov/pubmed/9098055)\].
+
+### HCAMHPDEG-PWY
+
+[3-phenylpropanoate and 3-(3-hydroxyphenyl)propanoate degradation to
+2-hydroxypentadienoate](https://metacyc.org/pathway?orgid=META&id=HCAMHPDEG-PWY#SUMMARY)
+
+Some taxa known to possess this pathway include : [Escherichia coli K-12
+substr. MG1655](https://metacyc.org/META/NEW-IMAGE?object=TAX-511145)
+
+Expected Taxonomic Range:
+[Pseudomonadota](https://metacyc.org/META/NEW-IMAGE?object=TAX-1224)
+
+**Pathway Summary**
+
+Phenylpropanoid compounds are abundant in natural environments, and can
+originate from putrefaction of proteins in soil or as breakdown products
+of plants materials such as lignin, various oils, and resins (for the
+biosynthesis of phenylpropanoid compounds, please see [Phenylpropanoid
+Derivative
+Biosynthesis](https://metacyc.org/META/NEW-IMAGE?type=ECOCYC-CLASS&object=PHENYLPROPANOID-SYN)).
+
+Microbial catabolism of phenylpropanoid compounds plays an important
+role in the natural degradation of these compounds. In addition, the
+degradation of several phenylpropanoid compounds is important for
+industrial applications such as wine making, aging, and storage
+\[[Cavin97](http://www.ncbi.nlm.nih.gov/pubmed/9143125)\].
+
+This is one of only two aromatic-ring-cleavage pathways found in
+[*Escherichia coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562).
+That [*Escherichia
+coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562) can degrade
+aromatic acids suggests a wider natural distribution for [*Escherichia
+coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562) than the
+anaerobic environment of the animal gut
+\[[Burlingame83](http://www.ncbi.nlm.nih.gov/pubmed/6345502)\].
+
+In the utilization of aromatic acids as a carbon and energy source,
+[*Escherichia coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562)
+employs a branched meta-cleavage pathway for the degradation of
+[3-phenylpropanoate](https://metacyc.org/compound?orgid=META&id=3-PHENYLPROPIONATE)
+and
+[3-(3-hydroxyphenyl)propanoate](https://metacyc.org/compound?orgid=META&id=3-HYDROXYPHENYL-PROPIONATE).
+Degradation of these two compounds ultimately yields
+[succinate](https://metacyc.org/compound?orgid=META&id=SUC),
+[acetaldehyde](https://metacyc.org/compound?orgid=META&id=ACETALD) and
+[pyruvate](https://metacyc.org/compound?orgid=META&id=PYRUVATE).
+Acetaldehyde is further metabolized to yield
+[acetyl-CoA](https://metacyc.org/compound?orgid=META&id=ACETYL-COA) (the
+second part of this pathway is escribed in [2-hydroxypenta-2,4-dienoate
+degradation](https://metacyc.org/pathway?orgid=META&id=PWY-5162)).
+
+The pathway (including the portion that is described in
+[2-hydroxypenta-2,4-dienoate
+degradation](https://metacyc.org/pathway?orgid=META&id=PWY-5162)) has
+eight known steps, which makes it among the longest catabolic sequences
+in [*Escherichia
+coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562)
+\[[Burlingame86](http://www.ncbi.nlm.nih.gov/pubmed/3531186),
+[Bugg93](http://www.ncbi.nlm.nih.gov/pubmed/8399388),
+[Ferrandez97](http://www.ncbi.nlm.nih.gov/pubmed/9098055)\].
+
+The pathway's enzyme are also able to metabolize
+[*trans*-cinnamate](https://metacyc.org/compound?orgid=META&id=CPD-674)
+and [3-coumarate](https://metacyc.org/compound?orgid=META&id=CPD-10797),
+as described in [cinnamate and 3-hydroxycinnamate degradation to
+2-hydroxypentadienoate](https://metacyc.org/pathway?orgid=META&id=PWY-6690).
+
+### PWY0-1277
+
+[\*3-phenylpropanoate and 3-(3-hydroxyphenyl)propanoate
+degradation\*](https://metacyc.org/pathway?orgid=META&id=PWY0-1277#ONT)
+
+Some taxa known to possess this pathway include : [Escherichia coli K-12
+substr. MG1655](https://metacyc.org/META/NEW-IMAGE?object=TAX-511145)
+
+Expected Taxonomic Range:
+[Pseudomonadota](https://metacyc.org/META/NEW-IMAGE?object=TAX-1224)
+
+**Pathway Summary**
+
+This is one of only two aromatic-ring-cleavage pathways found in
+[*Escherichia coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562)
+(for the second one, see [phenylacetate degradation I
+(aerobic)](https://metacyc.org/pathway?orgid=META&id=PWY0-321)). That
+[*Escherichia coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562)
+can degrade aromatic acids suggests a wider natural distribution for
+[*Escherichia coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562)
+than the anaerobic environment of the animal gut.
+\[[Burlingame83](http://www.ncbi.nlm.nih.gov/pubmed/6345502)\] In the
+utilization of aromatic acids as a carbon and energy source,
+[*Escherichia coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562)
+employs a branched meta-cleavage pathway for the degradation of
+3-phenylpropionate and 3-(3-hydroxyphenyl)propionate. Degradation of
+these two compounds ultimately yields succinate, acetaldehyde and
+pyruvate. Acetaldehyde is further metabolized to yield acetyl-CoA. The
+pathway has eight known steps, which makes it among the longest
+catabolic sequences in [*Escherichia
+coli*](https://metacyc.org/META/NEW-IMAGE?object=TAX-562).
+\[[Burlingame86](http://www.ncbi.nlm.nih.gov/pubmed/3531186),
+[Bugg93](http://www.ncbi.nlm.nih.gov/pubmed/8399388),
+[Ferrandez97](http://www.ncbi.nlm.nih.gov/pubmed/9098055)\]
+
+### TOLUENE-DEG-3-OH-PWY
+
+[*toluene degradation II (aerobic) (via
+4-methylcatechol*](https://metacyc.org/pathway?orgid=META&id=TOLUENE-DEG-3-OH-PWY#SUMMARY)
+
+Expected Taxonomic Range: Pseudomonadota
+
+Pathway Summary Toluene is widely used as an industrial additive and
+solvent. Toluene and related aromatic compounds can be degraded by
+bacteria, and have been studied in the metabolically versatile genus
+Pseudomonas and closely related genera. These studies have been directed
+toward bioremediation of environmental pollutants by metabolic
+engineering, and the development of syntrophic bacterial consortia
+(reviewed in \[Diaz04\]). Aerobic pathways of toluene degradation have
+been identified in various species that involve different initial
+monooxygenase, or hydroxylating dioxygenase reactions. Several of these
+pathways converge in the formation of 3-methylcatechol \[Shields91\].
+This compound is a substrate for ring cleavage enzymes, the products of
+which are metabolized via a common meta fission pathway, resulting in
+the formation of compounds of central metabolism (see this pathway and
+pathways toluene degradation to 2-hydroxypentadienoate I (via o-cresol)
+and toluene degradation to 2-hydroxypentadienoate (via
+toluene-cis-diol)). Toluene degradation in Ralstonia pickettii
+(previously known as Pseudomonas pickettii and Burkholderia pickettii)
+is controlled by a chromosomal regulon \[Kahng00\]. The initial
+hydroxylation reactions are catalyzed by toluene 4-monooxygenase,
+followed by meta cleavage of the benzene ring by catechol
+2,3-dioxygenase, and subsequent degradation via the meta cleavage
+pathway \[Olsen94\].
+
+There is disagreement in the literature over the hydroxylation reactions
+of the first enzyme of this pathway. Initial reports suggested that the
+first hydroxylation is at the meta position yielding 3-methylphenol as
+an intermediate, and the second yields 3-methylcatechol \[Olsen94\].
+However, later work suggested that toluene 3-monooxygenase is
+predominantly a para cleaving enzyme, and its initial products were
+shown in that study to be 90% 4-methylphenol, and only 10%
+3-methylphenol. 4-methylphenol was further hydroxylated to
+4-methylcatechol \[Fishman04\]. Although further metabolism of
+4-methylcatechol was not studied in that report, it has been shown to be
+a substrate of catechol 2,3-dioxygenase in Ralstonia pickettii
+\[Kukor91\].
+
+Ring fission of 4-methylcatechol, catalyzed by catechol 2,3-dioxygenase,
+produces (2Z,4E)-2-hydroxy-5-methyl-6-oxohexa-2,4-dienoate. This
+compound is hydrolyzed to (2Z)-2-hydroxyhexa-2,5-dienoate, or its
+tautomeric dienol form (this tautomerization occurs spontaneously in
+aqueous solution \[Johnson04\]). A second hydrolysis, catalyzed by TbuJ
+afford (S)-4-hydroxy-2-oxohexanoate, which is cleaved by the aldolase
+TbuK into pyruvate and 1-propanal \[Kukor91\].
+
+The final products of the pathway are pyruvate, which enters central
+metabolism, and 1-propanal, which may be converted by EC 1.2.1.87,
+propanal dehydrogenase (CoA-propanoylating) to propanoyl-CoA, which can
+be converted into the central metabolite succinyl-CoA as described in
+propanoyl CoA degradation I.
+
+### PWY-5182
+
+[**toluene degradation II (aerobic) (*via
+4-methylcatechol*)**](https://biocyc.org/pathway?orgid=META&id=TOLUENE-DEG-3-OH-PWY&sid=biocyc15-3987718044)
+
+Some taxa known to possess this pathway include : [Ralstonia
+pickettii](https://biocyc.org/META/NEW-IMAGE?object=TAX-329)
+
+Expected Taxonomic Range:
+[Pseudomonadota](https://biocyc.org/META/NEW-IMAGE?object=TAX-1224)
+
+### **Pathway Summary**
+
+Toluene is widely used as an industrial additive and solvent. Toluene
+and related aromatic compounds can be degraded by bacteria, and have
+been studied in the metabolically versatile genus
+[*Pseudomonas*](https://biocyc.org/META/NEW-IMAGE?object=TAX-286) and
+closely related genera. These studies have been directed toward
+bioremediation of environmental pollutants by metabolic engineering, and
+the development of syntrophic bacterial consortia (reviewed in
+\[[Diaz04](http://www.ncbi.nlm.nih.gov/pubmed/15492931)\]). Aerobic
+pathways of toluene degradation have been identified in various species
+that involve different initial monooxygenase, or hydroxylating
+dioxygenase reactions. Several of these pathways converge in the
+formation of
+[3-methylcatechol](https://biocyc.org/compound?orgid=META&id=CPD-111)
+\[[Shields91](http://www.ncbi.nlm.nih.gov/pubmed/1892384)\]. This
+compound is a substrate for ring cleavage enzymes, the products of which
+are metabolized via a common *meta* fission pathway, resulting in the
+formation of compounds of central metabolism (see this pathway and
+pathways [toluene degradation to 2-hydroxypentadienoate I (*via*
+*o*-cresol)](https://biocyc.org/pathway?orgid=META&id=TOLUENE-DEG-2-OH-PWY)
+and [toluene degradation to 2-hydroxypentadienoate (*via*
+toluene-*cis*-diol)](https://biocyc.org/pathway?orgid=META&id=TOLUENE-DEG-DIOL-PWY)).
+
+Toluene degradation in [*Ralstonia pickettii* (previously known as
+*Pseudomonas pickettii* and *Burkholderia
+pickettii*)](https://biocyc.org/META/NEW-IMAGE?object=TAX-329) is
+controlled by a chromosomal regulon
+\[[Kahng00](http://www.ncbi.nlm.nih.gov/pubmed/10671442)\]. The initial
+hydroxylation reactions are catalyzed by [toluene
+4-monooxygenase](https://biocyc.org/complex?orgid=META&id=CPLX-6542),
+followed by *meta* cleavage of the benzene ring by catechol
+2,3-dioxygenase, and subsequent degradation via the *meta* cleavage
+pathway \[[Olsen94](http://www.ncbi.nlm.nih.gov/pubmed/8206853)\].
+
+There is disagreement in the literature over the hydroxylation reactions
+of the first enzyme of this pathway. Initial reports suggested that the
+first hydroxylation is at the *meta* position yielding
+[3-methylphenol](https://biocyc.org/compound?orgid=META&id=CPD-112) as
+an intermediate, and the second yields
+[3-methylcatechol](https://biocyc.org/compound?orgid=META&id=CPD-111)
+\[[Olsen94](http://www.ncbi.nlm.nih.gov/pubmed/8206853)\]. However,
+later work suggested that toluene 3-monooxygenase is predominantly a
+*para* cleaving enzyme, and its initial products were shown in that
+study to be 90%
+[4-methylphenol](https://biocyc.org/compound?orgid=META&id=CPD-108), and
+only 10%
+[3-methylphenol](https://biocyc.org/compound?orgid=META&id=CPD-112).
+[4-methylphenol](https://biocyc.org/compound?orgid=META&id=CPD-108) was
+further hydroxylated to
+[4-methylcatechol](https://biocyc.org/compound?orgid=META&id=4-METHYLCATECHOL)
+\[[Fishman04](http://www.ncbi.nlm.nih.gov/pubmed/15126473)\]. Although
+further metabolism of 4-methylcatechol was not studied in that report,
+it has been shown to be a substrate of catechol 2,3-dioxygenase in
+[*Ralstonia
+pickettii*](https://biocyc.org/META/NEW-IMAGE?object=TAX-329)
+\[[Kukor91](http://www.ncbi.nlm.nih.gov/pubmed/1856161)\].
+
+Ring fission of
+[4-methylcatechol](https://biocyc.org/compound?orgid=META&id=4-METHYLCATECHOL),
+catalyzed by catechol 2,3-dioxygenase, produces
+[(2Z,4E)-2-hydroxy-5-methyl-6-oxohexa-2,4-dienoate](https://biocyc.org/compound?orgid=META&id=CPD-8781).
+This compound is hydrolyzed to
+[(2Z)-2-hydroxyhexa-2,5-dienoate](https://biocyc.org/compound?orgid=META&id=CPD-22385),
+or its tautomeric dienol form (this tautomerization occurs spontaneously
+in aqueous solution
+\[[Johnson04](http://www.ncbi.nlm.nih.gov/pubmed/15301547)\]). A second
+hydrolysis, catalyzed by TbuJ afford
+[(*S*)-4-hydroxy-2-oxohexanoate](https://biocyc.org/compound?orgid=META&id=CPD-13722),
+which is cleaved by the aldolase TbuK into
+[pyruvate](https://biocyc.org/compound?orgid=META&id=PYRUVATE) and
+[1-propanal](https://biocyc.org/compound?orgid=META&id=CPD-665)
+\[[Kukor91](http://www.ncbi.nlm.nih.gov/pubmed/1856161)\].
+
+The final products of the pathway are
+[pyruvate](https://biocyc.org/compound?orgid=META&id=PYRUVATE), which
+enters central metabolism, and
+[1-propanal](https://biocyc.org/compound?orgid=META&id=CPD-665), which
+may be converted by [EC 1.2.1.87, propanal dehydrogenase
+(CoA-propanoylating)](https://biocyc.org/META/NEW-IMAGE?type=EC-NUMBER&object=EC-1.2.1.87)
+to
+[propanoyl-CoA](https://biocyc.org/compound?orgid=META&id=PROPIONYL-COA),
+which can be converted into the central metabolite
+[succinyl-CoA](https://biocyc.org/compound?orgid=META&id=SUC-COA) as
+described in [propanoyl CoA degradation
+I](https://biocyc.org/pathway?orgid=META&id=PROPIONMET-PWY).
+
+## Chlorinated Compound Degradation
+
+### PCPDEG-PWY
+
+[*pentachlorophenol
+degradation*](https://metacyc.org/pathway?orgid=META&id=PCPDEG-PWY)
+
+Expected Taxonomic Range: Bacteria <bacteria>
+
+Pathway Summary Pentachlorophenol (PCP) is a a polychlorinated aromatic
+compound that has been released into the environment as a wood
+preservative and broad spectrum biocide \[Kaufman77a, Crosby81\]. This
+compound is a major environmental pollutant due to its toxicity and
+recalcitrance, and it is regulated as one of the priority pollutants by
+the U.S. Environmental Protection Agency \[Middaugh94\]. Microorganisms
+have been used to remove PCP from the environment \[Miethling96\], and
+several aerobic PCP-degrading bacteria have been isolated from
+contaminated soils \[Crawford99\]. Sphingobium chlorophenolicum
+(previously known as Sphingomonas chlorophenolica) strain ATCC 39723 is
+one of the bacteria capable of completely mineralizing PCP \[Saber85\]
+The degradation pathway in Sphingobium chlorophenolicum starts with EC
+1.14.13.50, pentachlorophenol monooxygenase, an enzyme that catalyzes
+the conversion of pentachlorophenol to
+2,3,5,6-tetrachloro-1,4-benzoquinone, followed by EC 1.1.1.404,
+tetrachlorobenzoquinone reductase, which reduces the latter to
+2,3,5,6-tetrachlorohydroquinone. The next enzyme, a glutathione
+transferase encoded by the pcpC gene, catalyzes the next two steps,
+resulting in 2,6-dichlorohydroquinone. PcpC is susceptible to oxidative
+damage, and the damaged PcpC produces glutathionyl (GS) conjugates which
+it can't process further. These conjugates can be rescued by the action
+of another glutathione transferase encoded by pcpF, which completes the
+reduction reaction and removes the glutathione moiety.
+
+The next enzyme, 2,6-dichlorohydroquinone dioxygenase, cleaves the ring,
+resulting in the non-aromatic product 2-chloromaleylacetate \[Ohtsubo99,
+Lange96, Orser94\]. This compound is dehalogenated in two steps by
+maleylacetate reductase, resulting in 3-oxoadipate, a common
+intermediate in the degradation of aromatic compounds, which is further
+degraded into central metabolism intermediates.
+
+The genes responsible for degradation of pentachlorophenol are found on
+a secondary chromosome that encodes primarily genes that appear to be
+involved in environmental adaptation \[Copley12\]. The first and third
+enzymes in this pathway (pentachlorophenol hydroxylase and
+2,6-dichlorohydroquinone dioxygenase) may have originated from enzymes
+in a pathway for degradation of a naturally occurring chlorinated
+phenol. The second enzyme, tetrachlorohydroquinone reductive
+dehalogenase, may have evolved from a maleylacetoacetate isomerase (for
+example, see maleylacetoacetate isomerase) which is normally involved in
+degradation of tyrosine \[Copley00\]. These three genes were acquired
+fairly recently via two different horizontal gene transfer events, while
+the genes encoding the final two enzymes were acquired earlier
+\[Copley12\].
+
+The pathway is not very effective - pentachlorophenol hydroxylase is
+very slow, and tetrachlorohydroquinone reductive dehalogenase is subject
+to severe product inhibition, further suggesting that the pathway has
+evolved recently \[Copley00\].
+
+### 14DICHLORBENZDEG-PWY
+
+::: callout-note
+Aromatic & Chlorinated Compound Degradation !
+:::
+
+[*14-dichlorobenzene
+degradation*](https://metacyc.org/pathway?orgid=META&id=14DICHLORBENZDEG-PWY)
+
+Expected Taxonomic Range: Pseudomonadota
+
+Pathway Summary 1,4-Dichlorobenzene is a volatile organic compound used
+in mothballs and some air fresheners, and a common contaminant of indoor
+air. It is also used against termites in soil. It has been classified as
+a possible carcinogen and may be related to decreased pulmonary function
+in adults \[Elliott08\]. 1,4-Dichlorobenzene has been identified as a
+priority pollutant by the US Environmental Protection Agency (EPA).
+Chlorinated benzenes are chemically stable in nature, so biological
+degradation is the only process by which these compounds are eliminated
+\[Spiess95\]. Several bacterial species were reported to catabolize
+1,4-dichlorobenzene, including Alcaligenes sp. strain A175 \[Schraa86\],
+an unidentified Pseudomonas species \[Spain87\], Pseudomonas sp. P51
+\[vanderMeer91\], Xanthobacter flavus 14p1 \[Spiess95\] and other not
+well characterized bacteria \[Adebusoye07\].
+
+The best studied case is that of Xanthobacter flavus 14p1, a bacterium
+that is able to utilize 1,4-dichlorobenzene as a sole source of carbon
+and energy. The degradation pathway in this organism begins with
+dioxygenation of 1,4-dichlorobenzene by a chlorobenzene dioxygenase,
+followed by chlorobenzene cis-dihydrodiol dehydrogenase, resulting in
+3,6-dichlorocatechol. Ring opening then proceeds via a modified ortho
+cleavage pathway, yielding 3-oxoadipate which is processed to TCA cycle
+intermediates \[Spiess95\]. The intermediates of the pathway up to
+2-chloromaleylacetate were isolated and identified by gas
+chromatography, confirming the propsed pathway \[Spiess95\]. In
+addition, individual enzyme activities have been measured with whole
+cells and cell extracts \[Sommer97\].
+
+Even though Xanthobacter flavus 14p1 can not grow with chlorobenzene or
+1,3-dichlorobenzene as the sole carbon source, all the enzymes that
+participate in this pathway can also accept the respective intermediates
+of the degradation of these two compound \[Sommer97\]. In the case of
+1,3-dichlorobenzene, lack of growth results probably from failure to
+induce the enzymes. Growth with chlorobenzene, on the other hand, does
+induce the key enzymes. The authors speculate that lack of growth with
+this compound may be the result of toxicity of the one of the
+intermediates involved \[Sommer97\]. Lipid metabolism pathways →
+membrane stress responses Aromatic degradation pathways → breakdown of
+plastic-derived organics Redox / respiration pathways → oxidative stress
+handling
+
+### PWY-6084
+
+::: callout-note
+Aromatic & Chlorinated Compound Degradation !
+:::
+
+[*3,5-dichlorocatechol
+degradation*](https://metacyc.org/pathway?orgid=META&id=PWY-6084)
+
+Some taxa known to possess this pathway include : Bradyrhizobium sp.
+RD5-C2, Burkholderia sp. RASC, Caballeronia sp. NK8, Cupriavidus
+pinatubonensis JMP134, Cupriavidus sp. PS12, Delftia acidovorans,
+Pseudomonas knackmussii, Ralstonia eutropha NH9
+
+Expected Taxonomic Range: Bacteria <bacteria>
+
+Pathway Summary Chlorobenzenes are used in the production of pesticides,
+dyes, pharmaceuticals, disinfectants, rubbers, plastics, and electric
+goods \[Rapp01\]. Their occurrence in the environment is widespread and
+they are found in the atmosphere \[Popp00\], water \[Aelion87,
+Monferran05\], soil \[Guerin08, Sabljic89\], sediments \[Lee05c\],
+vegetables \[Zhang05d\], and animals \[Vorkamp04\]. Chlorobenzenes are
+of great concern because of their toxicity, persistence and accumulation
+in the food chain, and many of them have been declared priority
+pollutants by the US Environmental Protection Agency (EPA). Two
+important chlrobenzene compounds, 2,4-dichlorophenoxyacetate and
+1,3-dichlorobenzene, are degraded via 3,5-dichlorocatechol. This
+catechol is subsequently degraded to 3-oxoadipate in a modified ortho
+cleavage pathway, as described in this pathway. Several bacterial
+species were reported to possess the pathway, including Cupriavidus
+pinatubonensis JMP134 \[Laemmli04\], Cupriavidus sp. PS12
+\[Pollmann01\], Pseudomonas knackmussii \[Schwein88\], Bradyrhizobium
+sp. RD5-C2 \[Itoh02\], Burkholderia sp. RASC \[Suwa96\], Delftia
+acidovorans \[Muller01b\], Caballeronia sp. NK8 \[Liu01a\] and Ralstonia
+eutropha NH9 \[Liu05b\]. The enzymes catalyzing this pathway have been
+studied and characterized from several organisms \[Schwein88,
+vanderMeer91a\]. They are usually encoded by transmissible plasmids,
+such as the pJP4 plasmid of Cupriavidus pinatubonensis JMP134 or the
+pB13 plasmid of Pseudomonas knackmussii.
+
+The catechol is attacked by a chlorocatechol 1,2-dioxygenase that opens
+the ring, generating (2E,4E)-2,4-dichloromuconate. chloromuconate
+cycloisomerase I catalyzes a reaction that combines isomerization to a
+lactone with the loss of one of the chlorine atoms. In Pseudomonas
+knackmussii the lacton that is produced is in the trans form, and is
+isomerized to a cis form by a 2-chloro-trans-dienelactone isomerase. It
+is not clear if this occurs in other organisms as well \[Schwein88\].
+The lactone is then hydrolyzed to 2-chloromaleylacetate by a hydrolase.
+Finally, ther last enzyme of the pathway, chloromaleylacetate reductase,
+catalyzes two successive reductions, during which the second chlorine
+atom is lost. The final product, 3-oxoadipate, is degraded to TCA cycle
+intermediates by chromosomally encoded enzymes.
+
+\### PWY-7039
+
+::: callout-note
+Biosynthesis fatty acid / lipids phospholipid biosynthesis signaling
+:::
+
+[*phosphatidate metabolism, as a signaling
+molecule*](https://metacyc.org/pathway?orgid=META&id=PWY-7039)
+
+Expected Taxonomic Range: Viridiplantae
+
+Pathway Summary 1,2-Diacyl-sn-glycerol-3-phosphate, often referred to as
+phosphatidate (PA), is a class of compounds consisting of a glycerol
+backbone, a (usually) saturated fatty acid bonded to carbon 1, a
+(usually) unsaturated fatty acid bonded to carbon 2, and a phosphate
+group esterified to carbon 3. PA is an intermediate in structural lipid
+biosynthesis (see superpathway of phospholipid biosynthesis II (plants)
+and diacylglycerol and triacylglycerol biosynthesis), and an important
+second messenger. In plants, PA is rapidly and transiently generated in
+response to a number of biotic (pathogens) and abiotic (such as cold and
+salt stress) stimulates (reviewed in \[Testerink05\]). Using a so-called
+differential labeling method, it was shown that there are two pathways,
+the phospholipase C and diacylglycerol kinase pathway (PLC pathway), and
+the phospholipase D pathway (PLD pathway), that generate PA as a
+signaling molecule in response to environmental signals (reviewed in
+\[Arisz09\]). In the PLC pathway, phosphatidylinositol-4,5-bisphosphate,
+derived from phosphatidylinositol, is converted to diacylglycerol which
+is rapidly phosphorylated to PA. In the PLD pathway, PA is directly
+formed from structural lipid phosphatidylcholine. The two pathways are
+differentially activated in response to different stimulates
+\[Testerink05\]. Once formed, PA can be further converted to
+diacylglycerol pyrophosphate (DGPP) by PA kinase (reviewed in
+\[vanSchooten06\]). This is a possible mechanism in PA attenuation.
+Interestingly, mammals do not seem to have PA kinase activity.
+
+# 000PCA of pathway matrix
+
+> Goal: Perform PCA analysis on pathway abundance data and create an
+> informative visualization that includes a scatter plot of the first
+> two principal components (PC1 vs PC2) with density plots for both PCs.
+> The plot helps to visualize the clustering patterns and distribution
+> of samples across different groups.
+
+```{r}
+# Perform PCA on pathway abundance data
+pca_comp <- prcomp(path, scale. = TRUE)
+
+# Create a data frame for plotting
+pca_df <- as.data.frame(pca_comp$x)
+
+# Add metadata to the PCA data frame
+pca_df <- cbind(pca_df, meta)
+
+# Set factors 
+pca_df <- pca_df %>% 
+  mutate(stage = factor(stage, levels = c("cleavage", "prawnchip", "earlygastrula")),
+         leachate = factor(leachate, levels = c("control", "low", "mid", "high")))
+
+# Calculate %Var in PC1 and PC2
+percentVar <- (pca_comp$sdev^2) / sum(pca_comp$sdev^2) * 100
+
+pc1_var <- round(percentVar[1], 1)
+pc2_var <- round(percentVar[2], 1)
+```
+
+Labels for grouping variables
+
+```{r}
+labs_leachate <- c(control = "0 mg/L (control)",
+                   low = "0.01 mg/L (low)",
+                   mid = "0.1 mg/L (mid)",
+                   high = "1 mg/L (high)")
+
+labs_stage <- c(cleavage = "Cleavage", prawnchip = "Prawn chip", earlygastrula = "Early gastrula")
+```
+
+```{r}
+# Create a scatter plot of PC1 vs PC2 with density plots
+ggplot(pca_df, aes(x = PC1, y = PC2, color = leachate)) +
+  geom_point(size = 3) +
+  #geom_density_2d() +
+  labs(title = "PCA of Pathway Abundance Data",
+       x = "Principal Component 1",
+       y = "Principal Component 2") +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+```
+
+# ggpicrust2 package for visualizing results
+
+Git repo [here](https://github.com/cafferychen777/ggpicrust2#workflow)
+...
+
+```{r ggpicrust2}
+library(ggpicrust2)
+```
+
+```{r}
+results_data_input <- ggpicrust2(data = abundance_data,
+                                 metadata = metadata,
+                                 group = "your_group_column", # For example dataset, group = "Environment"
+                                 pathway = "KO",
+                                 daa_method = "LinDA",
+                                 ko_to_kegg = TRUE,
+                                 order = "pathway_class",
+                                 p_values_bar = TRUE,
+                                 x_lab = "pathway_name")
+```
+
+```{r}
+# If you want to analysis the EC. MetaCyc. KO without conversions.
+
+path_rows <- t(path)
+
+metacyc_daa_results_df <- pathway_daa(
+                                      abundance = path_rows,
+                                      metadata = meta,
+                                      group = "group",
+                                      daa_method = "DESeq2"
+                                    )
+
+metacyc_daa_annotated_results_df <- 
+  pathway_annotation(pathway="MetaCyc", 
+                     daa_results_df = metacyc_daa_results_df,
+                     ko_to_kegg = FALSE)
+
+p <- pathway_errorbar(
+  abundance = path_rows,
+  daa_results_df = metacyc_daa_annotated_results_df,
+  Group = meta$group,
+  ko_to_kegg = FALSE,
+  p_values_threshold = 0.05,
+  order = "group",
+  select = NULL,
+  p_value_bar = TRUE,
+  colors = NULL,
+  x_lab = "description"
+)
+
+p
+```
+
+```{r}
+# Filter features with p < 0.05
+feature_with_p_0.05 <- metacyc_daa_annotated_results_df %>%
+  filter(p_adjust < 0.05)
+
+# Create the heatmap
+pathway_heatmap(
+  abundance = path_rows %>%
+    right_join(
+      annotated_metacyc_daa_results_df %>% select(all_of(c("feature","description"))),
+      by = c("pathway" = "feature")
+    ) %>%
+    filter(pathway %in% feature_with_p_0.05$feature) %>%
+    select(-"pathway") %>%
+    column_to_rownames("description"),
+  metadata = meta,
+  group = "group"
+)
+```

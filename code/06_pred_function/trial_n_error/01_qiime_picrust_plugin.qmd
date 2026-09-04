@@ -1,0 +1,199 @@
+---
+title: "Running PICRUSt2"
+author: "Sarah Tanja"
+date: 2026-03-16
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools: 
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = FALSE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = "") # Prevents appending '##' to beginning of lines in code output)        
+```
+
+# Background
+
+[How does PICRUSt2 work? What does it do?](https://github.com/picrust/picrust2/wiki/How-does-PICRUSt2-work%3F-What-does-it-do%3F)
+
+> PICRUSt2 aims to predict the functional content of microbial communities based on amplicon/marker gene sequences. Very simply, PICRUSt2 takes information about which microbes are present in a sample and predicts what these microbes might be doing. PICRUSt2 compares the marker gene sequences from a sample to known genomes from similar microbes in order to predict the genes that are likely present and what functions they might perform.
+
+-   fasta formatted representative sequences (ASVs)
+
+-   feature table (tab-delimited) containing abundance of ASVs within samples
+
+::: callout-note
+Some advice from Dr. Steve Salipante
+
+> Yes it is reasonable to look at picrust output and see if there are functional shifts, but it is not clear how adequate picrust libraries are to allow metabolic inference of these particular populations.  I would recommend that the actual analysis of metabolic shifts be conducted in Maaslin, as before, to account for covariates.
+>
+> it is possible to give sarah the input files she would need for the analysis. \[see [https://forum.qiime2.org/t/picrust2-input-files-for-bacteria/27968](https://urldefense.com/v3/__https://forum.qiime2.org/t/picrust2-input-files-for-bacteria/27968__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwEJWtIM0$)\]. For the record, you could isolate the ASV table from DADA2 in qiime (these are stored in rep-seqs-dada2.qza, according to [https://forum.qiime2.org/t/how-to-generate-an-asv-table-from-dada2-output/9973](https://urldefense.com/v3/__https://forum.qiime2.org/t/how-to-generate-an-asv-table-from-dada2-output/9973__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwpWyxhvY$)), and convert it to biom format \[[https://forum.qiime2.org/t/how-to-generate-an-asv-table-from-dada2-output/9973/2](https://urldefense.com/v3/__https://forum.qiime2.org/t/how-to-generate-an-asv-table-from-dada2-output/9973/2__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwc-L0gtk$)\]. 
+>
+> having said this it may just be easier to use the picrust2 plugin for qiime and hand over those outputs, since we already have the inputs ready in qiime
+>
+> [https://github.com/picrust/picrust2/wiki/q2-picrust2-Tutorial](https://urldefense.com/v3/__https://github.com/picrust/picrust2/wiki/q2-picrust2-Tutorial__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwVcNVfvQ$)
+>
+> [https://github.com/picrust/picrust2/wiki/Manually-install-QIIME-2-plugin](https://urldefense.com/v3/__https://github.com/picrust/picrust2/wiki/Manually-install-QIIME-2-plugin__;!!K-Hz7m0Vt54!iZIXAiB2i2QtliEgrFMztEKZHQZuAILNAY54WW_klnDOn0rCNia6tnE-GrFq0efQ8IeJkkAwAif4ef0$)\
+> \
+> id say generate those outputs and then run them through maaslin to look for significant feature abundances. -- S.S.
+:::
+
+# Setup
+
+# Load libraries
+
+```{r, eval=TRUE}
+library(reticulate)
+library(tidyverse)
+library(qiime2R)
+```
+
+# Install miniconda
+
+Installation instruction for miniconda are [here](https://www.anaconda.com/docs/getting-started/miniconda/install#linux) - create a new directory named "miniconda3" in your home directory. - download the Linux Miniconda installation script for your chosen chip architecture and save the script as miniconda.sh in the miniconda3 directory. - run the miniconda.sh installation script in silent mode using bash. - remove the miniconda.sh installation script file after installation is complete.
+
+Run in terminal:
+
+```         
+mkdir -p ~/miniconda3
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda3/miniconda.sh
+bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+rm ~/miniconda3/miniconda.sh
+```
+
+Verify the location of miniconda3
+
+```         
+ls -ld ~/miniconda3
+```
+
+Check the version
+
+```         
+$HOME/miniconda3/bin/conda --version
+```
+
+> 25.3.1
+
+After installing Miniconda, you have to initialize conda for bash
+
+```         
+$HOME/miniconda3/bin/conda init bash
+```
+
+Close terminal and re-open
+
+```         
+source ~/.bashrc
+```
+
+make sure you're running the latest version of `conda`.
+
+```         
+conda update conda
+```
+
+accept terms of service
+
+# Install QIIME2 as a conda environment
+
+picrust needs python 3.9
+
+## 2025.7
+
+```         
+conda env create \
+  --name qiime2-amplicon-2025.7 \
+  --file https://raw.githubusercontent.com/qiime2/distributions/refs/heads/dev/2025.7/amplicon/released/qiime2-amplicon-ubuntu-latest-conda.yml
+```
+
+# Activate qiime2 environment in R
+
+```{r load-qiime-env, eval=TRUE}
+use_condaenv(condaenv = "qiime2-amplicon-2023.9", conda = "/home/shared/8TB_HDD_02/stanja/miniconda3/condabin/conda")
+
+# Check successful env loading
+py_config()
+```
+
+If this is successful, the first line of output should show that the Python environment being used is the one in your conda environment path.
+
+Your conda and qiime environments should be listed in your \$PATH:
+
+```{r test-path, engine='bash'}
+echo $PATH
+```
+
+# Install picrust2
+
+This must be done from within the active qiime2 conda environment!
+
+`qiime2` depends on `python 3.8` but `picrust2` uses `python 3.9` ... This results in package conflicts!!! The qiime2 library plugin for q2-picrust2 warms about this and suggests installing the plugin manually to avoid the "mysterious incompatibility errors"
+
+> If you run into incompatibility errors ... try [installing the plugin manually](https://github.com/picrust/picrust2/wiki/Manually-install-QIIME-2-plugin) instead.
+
+Run the following code in the Terminal and type 'y' when prompted to first install picrust2.
+
+```         
+conda install -c bioconda -c conda-forge picrust2
+```
+
+# Install q2-picrust2 plugin
+
+Download, unzip, and install the q2-picrust2 qiime2 plugin!
+
+1. Get and unzip the plugin
+
+```{r, engine='bash'}
+cd /home/shared/8TB_HDD_02/stanja
+wget https://github.com/picrust/q2-picrust2/archive/refs/tags/2024.5_1.tar.gz
+tar -xzvf 2024.5_1.tar.gz
+```
+
+2.  Move into the plugin directory and `pip install` the `setup.py` script.
+
+```{r, engine='bash'}
+cd /home/shared/8TB_HDD_02/stanja/q2-picrust2-2024.5_1
+pip install -e .
+```
+
+3.  Refresh the qiime cache
+
+```{r,engine='bash'}
+qiime dev refresh-cache
+```
+
+4.  Test that the plugin is working
+
+```{r, engine='bash'}
+qiime picrust2 --help
+```
+
+
+```{r sessionInfo}
+sessionInfo()
+```

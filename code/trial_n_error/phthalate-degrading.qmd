@@ -1,0 +1,30 @@
+---
+title: "Explore known phthalate-degrading bacteria"
+subtitle: "reported from primary literature"
+author: "Sarah Tanja"
+date: 2025-10-30
+date-modified: "`r system('git log -1 --format=%ad --date=short', intern = TRUE)`"
+format: gfm
+toc: true
+toc-title: Contents <i class="bi bi-bookmark-heart"></i>
+toc-depth: 5
+toc-location: left
+bibliography: "../microbiome_bibtex.bib"
+reference-location: margin
+citation-location: margin
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+Alphaproteobacteria Rhodobacteraceae Citricella thiooxidans
+Alphaproteobacteria Rhodobacteraceae Sulfitobacter pontiacus
+Alphaproteobacteria Rhodobacteraceae Tropicibacter naphthalenivorans
+Alphaproteobacteria Rhodobacteraceae Marinovum algicola
+Alphaproteobacteria Rhodobacteraceae Thalassobius mediterraneus
+Alphaproteobacteria Rhodobacteraceae Pelagibaca bermudensis
+Alphaproteobacteria Rhodobacteraceae Rhodovulum iodosum
+Alphaproteobacteria Rhodobacteraceae Thalassococcus halodurans
+Alphaproteobacteria Rhodospirillaceae Thalassospira profundimaris
+Gammaproteobacteria Oceanospirillaceae Marinomonas communis
+Gammaproteobacteria Alteromonadaceae Alteromonas genovensis

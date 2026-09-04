@@ -1,0 +1,1496 @@
+---
+title: "Core Metrics Visualization"
+author: "Sarah Tanja"
+date: 2025-10-15
+date-modified: today
+format:
+  gfm: 
+    toc: true
+    number-sections: true
+  html:
+    theme: journal
+    highlight-style: github
+    page-layout: article
+    code-background: true
+    code-tools: 
+      source: true
+      toggle: true
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    number-sections: true
+    df-print: kable
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
+    reference-location: margin
+    citation-location: margin
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, # Display code chunks
+  eval = TRUE, # Evaluate code chunks
+  warning = FALSE, # Hide warnings
+  message = FALSE, # Hide messages
+  comment = ""# Prevents appending '##' to beginning of lines in code output
+  )        
+```
+
+# Background
+
+This document visualizes core diversity metrics from the filtered QIIME2
+analysis (`core-metrics-results-filtered/`). The filtered dataset
+excludes chloroplast, mitochondria, and unassigned sequences.
+
+Core metrics include: - **Alpha Diversity**: - Shannon diversity -
+Faith's Phylogenetic Diversity, - Evenness - Observed Features
+
+-   **Beta Diversity**:
+    -   Bray-Curtis
+    -   Jaccard
+    -   Weighted UniFrac
+    -   Unweighted UniFrac
+
+# Setup
+
+## Install Packages
+
+```{r}
+#install.packages("devtools")
+#devtools::install_github("jbisanz/qiime2R")
+#install.packages("tidyverse")
+#install.packages("ggplot2")
+#install.packages("patchwork")
+#install.packages("ggtext")
+#install.packages("viridis")
+#install.packages("stringr")
+#install.packages("broom")
+```
+
+## Load libraries
+
+```{r}
+#| message: false
+#| warning: false
+library(qiime2R)
+library(ggplot2)
+library(tidyverse)
+library(patchwork)
+library(stringr)
+library(ggtext)
+library(viridis)
+library(broom)
+library(ggsidekick)
+library(ggbeeswarm)
+library(ggsignif)
+```
+
+## Set Paths
+
+```{r}
+# Base path to core metrics results
+core_metrics_path <- "../../salipante/241121_StonyCoral/core-metrics-results-filtered"
+metadata_path <- "../../metadata/metadata.csv"
+
+# Output directory for figures
+figures_dir <- "../../figs"
+
+# Create figures directory if it doesn't exist
+if (!dir.exists(figures_dir)) {
+  dir.create(figures_dir, recursive = TRUE)
+}
+```
+
+## Set custom ggplot theme
+
+```{r}
+theme_sleek_axe <- function() {
+  theme_sleek() +
+    theme(
+      panel.border = element_rect(
+        color = "grey70",
+        fill = NA,
+        linewidth = 0.3
+      ),
+      axis.line.x  = element_line(color = "grey70"),
+      axis.line.y  = element_line(color = "grey70"),
+      
+      plot.title = element_text(
+        size  = 10,
+        color = "grey40",
+        hjust = 0.5,
+        margin = margin(b = 20)
+      ),
+      
+      strip.text = element_text(size = 10, color = "grey40"),
+      
+      plot.subtitle = element_text(
+        size   = 10,
+        color  = "grey40",
+        hjust  = 0.5,
+        margin = margin(b = 40)
+      ),
+      
+      axis.title = element_text(size = 10, color = "grey40"),
+      axis.text = element_text(size = 10, color = "grey40"),
+      legend.title = element_text(size = 10, color = "grey40"),
+      legend.text = element_text(size = 10, color = "grey40"),
+  
+      plot.margin = margin(t = 0.05, r = 2, b = 0.02, l = 2)
+    )
+}
+
+```
+
+## Set colorschemes
+
+```{r colors}
+leachate.colors <- c(control = "#AEF1FF", 
+                low = "#BBC7FF",
+                mid = "#7D8BFF", 
+                high = "#592F7D")
+
+stage.5.colors <- c(egg = "#FFE362",
+                    cleavage = "#EBA600", 
+                    morula = "#E6AA83",
+                    prawnchip = "#D9685B", 
+                    earlygastrula = "#A2223C")
+
+stage.3.colors <- c(cleavage = "#EBA600", 
+                  prawnchip = "#D9685B", 
+                  earlygastrula = "#A2223C")
+
+hpf.3.colors <- c("4" = "#EBA600", 
+                  "9" = "#D9685B", 
+                  "14" = "#A2223C")
+
+status.colors <- c(typical = "#75C165", 
+                   uncertain = "#E3FAA5", 
+                   malformed = "#8B0069")
+
+night.colors <- c(July_6th = "#E3FAA5", 
+                  July_7th = "#578B21", 
+                  July_8th = "#1E2440")
+
+night.colors.alt <- c(July_6th = "#21918C", 
+                  July_7th = "#201158", 
+                  July_8th = "#1E2440")
+```
+
+## Load Metadata
+
+```{r}
+metadata <- read_csv(metadata_path)
+
+# set factors
+metadata <- metadata %>% 
+  mutate(
+    stage = stage %>%
+      trimws() %>%
+      gsub("\\s+", "", .) %>% # remove spaces
+      factor(levels = c("cleavage", "prawnchip", "earlygastrula"),
+             ordered = TRUE),
+    leachate = factor(leachate, levels = c("control","low","mid","high"),
+                      ordered = TRUE),
+    parents = factor(parents),
+    group = factor(group)
+    ) %>% 
+  rename(SampleID = sample_id)
+
+str(metadata)
+```
+
+::: callout-note
+-   stage & leachate are categorical
+-   hpf & leachate_mgL are numerical
+:::
+
+# Alpha Diversity
+
+**Alpha diversity measures the diversity within individual samples.**
+
+## Shannon Diversity Index
+
+Shannon diversity accounts for both abundance and evenness of species
+present.
+
+```{r, shannon-data}
+# Load Shannon diversity vector
+shannon <- read_qza(file.path(core_metrics_path, "shannon_vector.qza"))
+
+# Create data frame
+shannon_df <- shannon$data %>%
+  rownames_to_column("SampleID") %>%
+  rename(Shannon = shannon_entropy) %>%
+  left_join(metadata, by = "SampleID")
+
+head(shannon_df)
+```
+
+### Statistical tests
+
+#### Check for normality
+
+```{r}
+ggplot(shannon_df, aes(x=Shannon))+
+  geom_density()+
+  theme_sleek_axe()
+
+shapiro.test(shannon_df$Shannon) # normality
+```
+
+::: callout-note
+**The Shannon diversity values appear approximately normal** and the
+**Shapiro–Wilk test for normality returned a p = 0.68** ( we fail to
+reject normality), so we can safely use **parametric tests**
+:::
+
+#### Run a two-way ANOVA
+
+Tests main effects and interaction
+
+::: callout-note
+A note on categorical vs numeric factors
+
+Use **factors for discrete groups**; use numeric when you want to test a
+continuous trend (e.g., linear dose–response).
+:::
+
+| Variable | Nature | Should be coded as | Why |
+|:----------------|:----------------|:----------------|:---------------------|
+| **`stage` (4 hpf, 9 hpf, 14 hpf)** | Distinct developmental stages | **Categorical (factor)** | The stages are not on a linear scale — differences are categorical, not continuous. |
+| **`leachate` (0, 0.01, 0.1, 1 mg/L)** | Nominally continuous, used as treatment bins | **Categorical (factor)** for ANOVA **or** **numeric** to test a dose–response trend | If you care about *group differences*, treat as a factor; if you want to test whether Shannon changes *linearly/non-linearly* with concentration, treat it as numeric. |
+
+: How to encode variables for alpha-diversity modeling.
+
+::: callout-note
+Since we are looking for non-monotonic (non dose-dependent responses) we
+choose to code our factors as categorical.
+:::
+
+```{r}
+levels(shannon_df$leachate)
+levels(shannon_df$stage)
+```
+
+```{r}
+aov_shannon2 <- aov(Shannon ~ leachate * stage, data = shannon_df)
+summary(aov_shannon2)
+```
+
+::: callout-note
+A two-way analysis of variance (ANOVA) revealed no significant effects
+of PVC leachate concentration, developmental stage, or their interaction
+on Shannon diversity. Differences in Shannon diversity among leachate
+treatments were not statistically significant (*F*₃,₄₈ = 1.25, *p* =
+0.302), nor were differences among developmental stages (*F*₂,₄₈ = 1.11,
+*p* = 0.339). Similarly, the leachate × stage interaction was not
+significant (*F*₆,₄₈ = 0.33, *p* = 0.919), indicating that the effect of
+leachate on microbial alpha diversity did not differ among stages.
+
+Two-way ANOVA indicated no significant effects of leachate
+concentration, developmental stage, or their interaction on Shannon
+diversity (*p* \> 0.3 for all factors).
+
+A two-way analysis of variance (ANOVA) was conducted to test the effects
+of categorical factors — **PVC leachate concentration** (control, low,
+mid, high) and **developmental stage** (cleavage, prawnchip,
+earlygastrula) — on Shannon diversity. Both factors were modeled as
+fixed, categorical factors.
+:::
+
+... but what if they were linear?
+
+```{r}
+class(shannon_df$leachate_mgL)
+class(shannon_df$hpf)
+```
+
+```{r}
+aov_shannon2.num <- aov(Shannon ~ leachate_mgL * hpf, data = shannon_df)
+summary(aov_shannon2.num)
+```
+
+::: callout-note
+Treating leachate concentration and developmental stage as categorical
+factors yielded no significant main or interaction effects on Shannon
+diversity. When the same variables were treated as continuous, results
+were qualitatively similar: no significant effects of leachate_mgL
+(*F*₁,₅₆ = 1.10, *p* = 0.300), hpf (*F*₁,₅₆ = 1.55, *p* = 0.218), or
+their interaction (*F*₁,₅₆ = 0.04, *p* = 0.841). Thus, alpha diversity
+remained stable across both categorical treatments and continuous
+gradients, indicating limited sensitivity of microbial diversity to
+leachate exposure or developmental progression.
+:::
+
+### Shannon Boxplots
+
+```{r shan1-leachates}
+# Box plot by leachate treatment
+shan1 <- ggplot(shannon_df, aes(x = leachate, y = Shannon,
+                                fill = leachate, color=leachate)
+                ) +
+  
+  geom_violin(alpha = 0.5, 
+              width = 0.9,
+              show.legend=FALSE) +
+  
+  geom_boxplot(color="black", 
+               width = 0.2, 
+               outlier.shape = NA, 
+               show.legend=FALSE) +
+  
+  scale_color_manual(
+    values = leachate.colors
+  ) +
+  
+  scale_fill_manual(
+    values = leachate.colors
+  ) +
+  
+  scale_x_discrete(labels = c(
+    control = "0",
+    low = "0.01",
+    mid = "0.1",
+    high = "1"
+  ))+
+  
+  labs(
+    title = "",
+    x = "",
+    y = ""
+  ) +
+  theme_sleek_axe()
+
+shan1
+```
+
+```{r shan2-stage}
+# Box plot by timepoint
+shan2 <- ggplot(shannon_df, aes(x = factor(hpf), y = Shannon, 
+                                fill = factor(hpf), color = factor(hpf))) +
+  
+  geom_violin(alpha = 0.5, 
+              width = 0.9,
+              show.legend=FALSE) +
+  
+  geom_boxplot(color="black", 
+               width = 0.2, 
+               outlier.shape = NA, 
+               show.legend=FALSE) +
+  
+  scale_fill_manual(values = hpf.3.colors) +
+  scale_color_manual(values = hpf.3.colors) +
+  
+  labs(
+    title = "",
+    x = "",
+    y = ""
+  ) +
+  theme_sleek_axe() 
+
+shan2
+```
+
+```{r}
+box1 <- 4
+box2 <- 3
+box3 <- 12
+```
+
+```{r shan3-int}
+# Box plot by leachate x timepoint interaction
+
+shan3 <- ggplot(shannon_df, aes(
+  x = factor(hpf),
+  y = Shannon,
+  fill = factor(leachate), 
+  color = factor(leachate)
+  )) +
+  
+  geom_violin(aes(group = interaction(hpf, leachate)),
+              alpha = 0.5, 
+              width = 3,
+              position=position_dodge(width=0.6),
+              show.legend=FALSE) +
+  
+  geom_boxplot(aes(group = interaction(hpf, leachate)),
+               color="black",
+               alpha = 1,
+               width = 0.2, 
+               outlier.shape = NA, 
+               position=position_dodge(width=0.6),
+               show.legend=FALSE) +
+  
+   scale_x_discrete(expand = expansion(mult = c(0.02, 0.02))) +
+  
+  scale_color_manual(values = leachate.colors) +
+  scale_fill_manual(values = leachate.colors) +
+  labs(
+    title = "Shannon",
+    x = "",
+    y = ""
+      )+
+  theme_sleek_axe()
+
+shan3
+```
+
+```{r shannon-combo, fig.width=10, fig.height=4}
+# Combine plots using patchwork
+shannon_combo <- shan3 + shan1 + shan2 +
+  plot_layout(widths = c(box3, box1, box2)) +
+  plot_annotation(
+    title = "Shannon Diversity Index",
+    tag_levels = "a",
+    theme = theme(
+      plot.title = element_text(size = 12,
+                                color = "grey40", 
+                                hjust = 0.5), 
+      plot.tag = element_text(size = 10, 
+                              color = "grey40", 
+                              hjust = 1, 
+                              vjust = -4)
+    )
+  )
+
+shannon_combo
+```
+
+```{r save-shannon}
+# Save plots
+ggsave(filename = file.path(figures_dir, "shannon_by_leachate.png"), plot = shan1, width = 10, height = 6, dpi = 300)
+ggsave(filename = file.path(figures_dir, "shannon_by_timepoint.png"), plot = shan2, width = 10, height = 6, dpi = 300)
+ggsave(filename = file.path(figures_dir, "shannon_leachate_x_timepoint.png"), plot = shan3, width = 10, height = 6, dpi = 300)
+ggsave(filename = file.path(figures_dir, "shannon_combined.png"), plot = shannon_combo, width = 10, height = 4, dpi = 900)
+```
+
+
+## Faith's Phylogenetic Diversity
+
+Faith's PD measures the phylogenetic diversity of species in a sample.
+
+```{r, faith-data}
+# Load Faith's PD vector
+faith <- read_qza(file.path(core_metrics_path, "faith_pd_vector.qza"))
+
+# Create data frame
+faith_df <- faith$data 
+
+# View it
+head(faith_df)
+```
+
+```{r, faith-metadata}
+# Join to metadata
+faith_df <- faith_df %>%
+  rename("SampleID"=V1) %>%
+  rename(Faith=V2) %>%
+  left_join(metadata, by ="SampleID")
+```
+
+## Statistical tests
+
+### Check for normality
+
+```{r}
+ggplot(faith_df, aes(x=Faith))+
+  geom_density()+
+  theme_sleek_axe()
+
+shapiro.test(faith_df$Faith) # normality
+```
+
+::: callout-note
+Check normality of Faith's Phylogenetic Diversity values using
+Shapiro-Wilk test. Since p = 0.78, we fail to reject the null hypothesis
+of normality, suggesting that Faith's PD values are approximately
+normally distributed and suitable for parametric testing.
+:::
+
+### Run a two-way ANOVA
+
+#### Using categorical variables
+
+```{r}
+aov_faith2 <- aov(Faith ~ leachate * stage, data = faith_df)
+summary(aov_faith2)
+```
+
+::: callout-note
+Two-way ANOVA with Faith's Phylogenetic Diversity as the response
+variable and categorical factors (PVC leachate level and developmental
+stage) show that leachate level did not effect Faith's PD (*F*₃,₄₈ =
+1.31, *p* = 0.280), while developmental stage *did* (*F*₂,₄₈ = 3.63, *p*
+= 0.034). However, the interaction between leachate and stage was not
+significant (*F*₆,₄₈ = 0.238, *p* = 0.962), indicating that the effect
+of leachate on Faith's PD did not differ across developmental stages.
+:::
+
+#### Using numerical variables
+
+```{r}
+aov_faith2.num <- aov(Faith ~ leachate_mgL * hpf, data = faith_df)
+summary(aov_faith2.num)
+```
+
+::: callout-note
+Two-way ANOVA with Faith's Phylogenetic Diversity treating timepoint as
+a continuous variable showed similar results as categorical factors.
+Hours post-fertilization did have an impact on within-sample
+phylogenetic diversity (*F*~1,56~ = 6.72, *p* = 0.01), while leachate
+(*F~1,56~* = 0.68, *p* = 0.41) and the interaction between leachate and
+time (*F*~1,56~ = 0.3, *p* = 0.58) did not.
+:::
+
+Since stage was significant we can do a Tukey HSD to see which stages
+separate from each other
+
+```{r}
+TukeyHSD(aov_faith2)
+```
+
+::: callout-important
+It appears the only sig difference between groups is between the
+cleavage and early gastrula stages (Tukey HSD *padj* = 0.04)
+:::
+
+### Faith Boxplots
+
+```{r fait1-leachate}
+# Box plot by leachate treatment
+fait1 <- ggplot(faith_df, aes(
+  x = factor(leachate),
+  y = Faith,
+  fill = factor(leachate), 
+  color=factor(leachate))
+  ) +
+
+  geom_violin(alpha = 0.5, 
+              width = 0.9,
+              show.legend=FALSE) +
+  
+  geom_boxplot(color="black", 
+               width = 0.2, 
+               outlier.shape = NA, 
+               show.legend=FALSE) +
+  
+    
+  scale_fill_manual(values=leachate.colors) +
+  scale_color_manual(values=leachate.colors)+
+  
+  scale_x_discrete(labels = c(
+    control = "0",
+    low = "0.01",
+    mid = "0.1",
+    high = "1"
+  ))+
+  
+  scale_y_continuous(breaks = seq(0, 170, by = 50), 
+                     limits = c(55, 160)) +
+  
+  labs(title = "",
+       x = "",
+       y = ""
+       )+
+  theme_sleek_axe()
+  
+fait1  
+```
+
+```{r fait2-stage}
+# Box plot by hpf
+fait2 <- ggplot(faith_df, aes(x = factor(hpf), 
+                              y = Faith, 
+                              fill = factor(hpf), 
+                              color=factor(hpf))) +
+
+  geom_violin(alpha = 0.5, 
+              width = 1,
+              show.legend=FALSE) +
+  
+  geom_boxplot(color="black", 
+               width = 0.2, 
+               outlier.shape = NA, 
+               show.legend=FALSE) +
+  
+  geom_signif(
+    comparisons = list(c("4", "14")),
+    annotations = "*",
+    y_position = 150,
+    tip_length = 0.02,
+    textsize = 6, 
+    color = "grey20",
+    show.legend = FALSE
+  ) +
+  
+  scale_fill_manual(values = hpf.3.colors) +
+  scale_color_manual(values = hpf.3.colors)+
+  
+  scale_y_continuous(breaks = seq(0, 170, by = 50), 
+                     limits = c(55, 160)) +
+  
+  labs(
+    title = "",
+    x = "",
+    y = ""
+  ) +
+  theme_sleek_axe()
+
+fait2
+```
+
+```{r fait3-int}
+# Box plot by leachate x timepoint interaction
+
+fait3 <- ggplot(faith_df, aes(
+  x = factor(hpf),
+  y = Faith,
+  fill = factor(leachate),
+  color = factor(leachate)
+)) +
+
+  geom_violin(aes(group = interaction(hpf, leachate)),
+              alpha = 0.5, 
+              width = 3,
+              position=position_dodge(width=0.6),
+              show.legend=FALSE) +
+  
+  geom_boxplot(aes(group = interaction(hpf, leachate)),
+               color="black",
+               alpha = 1,
+               width = 0.2, 
+               outlier.shape = NA, 
+               position=position_dodge(width=0.6),
+               show.legend=FALSE) +
+  
+  scale_x_discrete(expand = expansion(mult = c(0.02, 0.02))) +
+  scale_y_continuous(breaks = seq(0, 170, by = 50), 
+                     limits = c(55, 160)) +
+  
+  scale_fill_manual(values = leachate.colors) +
+  scale_color_manual(values = leachate.colors) +
+  labs(
+    title = "Faith",
+    x = "",
+    y = ""
+  ) +
+  theme_sleek_axe()
+
+fait3
+```
+
+```{r fait-combo, fig.width=10, fig.height=4}
+# Combine plots using patchwork
+faith_combo <- fait3 + fait1 + fait2+
+  plot_layout(widths = c(box3, box1, box2)) +
+  plot_annotation(
+    title = "Faith's Phylogenetic Diversity",
+    theme = theme(
+      plot.title = element_text(size = 12,
+                                color = "grey40", 
+                                hjust = 0.5)
+    )
+  )
+
+faith_combo
+```
+
+```{r}
+# Save plots
+ggsave(filename = file.path(figures_dir, "faith_by_leachate.png"), plot = fait1, width = 10, height = 6, dpi = 900)
+ggsave(filename = file.path(figures_dir, "faith_by_timepoint.png"), plot = fait2, width = 10, height = 6, dpi = 900)
+ggsave(filename = file.path(figures_dir, "faith_leachate_x_timepoint.png"), plot = fait3, width = 10, height = 6, dpi = 900)
+ggsave(filename = file.path(figures_dir, "faith_combined.png"), plot = faith_combo, width = 10, height = 4, dpi = 900)
+```
+
+## Pielou's Evenness
+
+Evenness measures how equal species abundances are within a sample.
+
+```{r, pielou-data}
+# Load evenness vector
+evenness <- read_qza(file.path(core_metrics_path, "evenness_vector.qza"))
+
+# Create data frame
+evenness_df <- evenness$data 
+
+# View it
+head(evenness_df)
+```
+
+```{r}
+evenness_df <- evenness_df %>% 
+  rownames_to_column("SampleID") %>%
+  rename(Evenness = pielou_evenness) %>%
+  left_join(metadata, by = "SampleID")
+
+head(evenness_df)
+```
+
+## Statistical tests
+
+### Check for normality
+
+```{r}
+ggplot(evenness_df, aes(x=Evenness))+
+  geom_density()+
+  theme_sleek_axe()
+shapiro.test(evenness_df$Evenness) # normality
+```
+
+::: callout-note
+Check normality of Pielou's Evenness values using Shapiro-Wilk test.
+Since *p* = 0.09, we fail to reject the null and conclude that Pielou's
+Evenness values are approximately normally distributed, allowing for
+parametric testing.
+:::
+
+### Run a two-way ANOVA
+
+#### Using categorical variables
+
+```{r}
+aov_evenness2 <- aov(Evenness ~ leachate * stage, data = evenness_df)
+summary(aov_evenness2)
+```
+
+::: callout-note
+Two-way ANOVA with Pielou's Evenness as the response variable and
+categorical factors (PVC leachate level and developmental stage)
+revealed no differences in evenness (equal species abundances) within
+samples across leachate treatments (*F*₃,₄₈ = 0.75, *p* = 0.53),
+developmental stages (*F*₂,₄₈ = 1.02, *p* = 0.37), or their interaction
+(*F*₆,₄₈ = 0.29, *p* = 0.94). This suggests that species evenness
+remained stable regardless of leachate exposure *or* developmental
+progression from 4 to 14 hours post-fertilization.
+:::
+
+#### Using numerical variables
+
+```{r}
+aov_evenness2.num <- aov(Evenness ~ leachate_mgL * hpf, data = evenness_df)
+summary(aov_evenness2.num)
+```
+
+::: callout-note
+Two-way ANOVA with Pielou's Evenness treating leachate concentration and
+timepoint as continuous variables showed similar results as categorical
+treatment of explanatory factors. All *p* \> 0.1, indicating no
+significant effects of leachate concentration, developmental timepoint,
+or their interaction on species evenness within samples.
+:::
+
+### Boxplots
+
+```{r piel1-leachate}
+# Box plot by leachate
+piel1 <- ggplot(evenness_df, aes(x = factor(leachate), y = Evenness, fill = factor(leachate), color=factor(leachate))) +
+  
+  geom_violin(alpha = 0.5, 
+              width = 0.9,
+              show.legend=FALSE) +
+  
+  geom_boxplot(color="black", 
+               width = 0.2, 
+               outlier.shape = NA, 
+               show.legend=FALSE) +
+  
+  scale_fill_manual(values = leachate.colors) +
+  scale_color_manual(values = leachate.colors)+
+  
+  labs(
+    title = "",
+    x = "",
+    y = ""
+  ) +
+  
+  scale_x_discrete(labels = c(
+    control = "0",
+    low = "0.01",
+    mid = "0.1",
+    high = "1"
+  ))+
+  
+  theme_sleek_axe()
+
+piel1
+```
+
+```{r piel2-stage}
+# Box plot by stage
+piel2 <- ggplot(evenness_df, aes(x = factor(hpf), y = Evenness, 
+                                 fill = factor(hpf), color=factor(hpf))
+                )+
+ 
+  geom_violin(alpha = 0.5, 
+              width = 0.9,
+              show.legend=FALSE) +
+  
+  geom_boxplot(color="black", 
+               width = 0.2, 
+               outlier.shape = NA, 
+               show.legend=FALSE) +
+  
+  scale_fill_manual(values = hpf.3.colors) +
+  scale_color_manual(values = hpf.3.colors) +
+  
+  labs(
+    title = "",
+    x = "",
+    y = ""
+  ) +
+  theme_sleek_axe()
+
+piel2
+```
+
+```{r piel3-int}
+# Box plot by leachate x timepoint interaction
+piel3 <- ggplot(evenness_df, aes(x = factor(hpf), y = Evenness, fill = leachate, color=leachate)) +
+ 
+  geom_violin(aes(group = interaction(hpf, leachate)),
+              alpha = 0.5, 
+              width = 1.5,
+              position=position_dodge(width=0.6),
+              show.legend=FALSE) +
+  
+  geom_boxplot(aes(group = interaction(hpf, leachate)),
+               color="black",
+               alpha = 1,
+               width = 0.2, 
+               outlier.shape = NA, 
+               position=position_dodge(width=0.6),
+               show.legend=FALSE) +
+  
+  scale_color_manual(values = leachate.colors) +
+  scale_fill_manual(values = leachate.colors) +
+  
+  labs(
+    title = "Pielou's",
+    x = "",
+    y = ""
+  ) +
+  theme_sleek_axe()
+
+piel3
+```
+
+```{r piel-combo, fig.width=10, fig.height=4}
+# Combine plots using patchwork
+pielou_combo <- piel3+ piel1 + piel2+
+  plot_layout(widths = c(box3, box1, box2)) +
+  plot_annotation(
+    title = "Pielou's Evenness",
+    theme = theme(
+      plot.title = element_text(size = 12,
+                                color = "grey40", 
+                                hjust = 0.5)
+    )
+  )
+pielou_combo
+```
+
+```{r}
+# Save plots
+ggsave(filename = file.path(figures_dir, "pielou_by_leachate.png"), plot = piel1, width = 10, height = 6, dpi = 900)
+ggsave(filename = file.path(figures_dir, "pielou_by_timepoint.png"), plot = piel2, width = 10, height = 6, dpi = 900)
+ggsave(filename = file.path(figures_dir, "pielou_leachate_x_timepoint.png"), plot = piel3, width = 10, height = 6, dpi = 900)
+ggsave(filename = file.path(figures_dir, "pielou_combined.png"), plot = pielou_combo, width = 10, height = , dpi = 900)
+```
+
+## Observed Features (ASV Richness)
+
+The number of unique amplicon sequence variants (ASVs) observed in each
+sample.
+
+```{r, asv-rich-data}
+# Load observed features vector
+observed <- read_qza(file.path(core_metrics_path, "observed_features_vector.qza"))
+
+# Create data frame
+observed_df <- observed$data 
+
+# View it
+head(observed_df)
+```
+
+```{r, asv-rich-metadata}
+observed_df <- observed_df %>%
+  rownames_to_column("SampleID") %>%
+  rename(ObservedFeatures = observed_features) %>%
+  left_join(metadata, by = "SampleID")
+```
+
+## Statistical tests
+
+### Check for normality
+
+```{r}
+ggplot(observed_df, aes(x=ObservedFeatures))+
+  geom_density()+
+  theme_sleek_axe()
+shapiro.test(observed_df$ObservedFeatures) # normality
+```
+
+::: callout-note
+Check normality of Observed Features values using Shapiro-Wilk test..
+since *p* = 0.12, we can reject the null hypothesis and conclude that
+Observed Features values are approximately normally distributed,
+allowing for parametric testing.
+:::
+
+### Run a two-way ANOVA
+
+#### Using categorical variables
+
+```{r}
+aov_observed2 <- aov(ObservedFeatures ~ leachate * stage, data = observed_df)
+summary(aov_observed2)
+```
+
+::: callout-note
+Two-way ANOVA with Observed Features as the response variable and
+categorical factors (PVC leachate level and developmental stage) show no
+differences between groups (all *p* \> 0.15)
+:::
+
+#### Using numerical variables
+
+```{r}
+aov_observed2.num <- aov(ObservedFeatures ~ leachate_mgL * hpf, data = observed_df)
+summary(aov_observed2.num)
+```
+
+::: callout-note
+Two-way ANOVA with Observed Features treating leachate concentration and
+timepoint as continuous variables show similar results, all *p* \> 0.11
+:::
+
+### Boxplots
+
+```{r asv1-leachate}
+# Box plot by leachate treatment
+asv1 <- ggplot(observed_df, 
+               aes(x = leachate, y = ObservedFeatures, 
+                   fill = leachate, color=leachate)) +
+  
+  geom_violin(alpha = 0.5, 
+              width = 0.9, 
+              outlier.shape = NA, 
+              show.legend=FALSE) +
+  
+  geom_boxplot(color="black", 
+               width = 0.2, 
+               outlier.shape = NA, 
+               show.legend=FALSE) +
+  
+  scale_color_manual(values = leachate.colors) +
+  scale_fill_manual(values = leachate.colors) +
+  
+  scale_x_discrete(labels = c(
+    control = "0",
+    low = "0.01",
+    mid = "0.1",
+    high = "1"
+  ))+
+  
+  labs(
+    title = "",
+    x = "",
+    y = ""
+  ) +
+  theme_sleek_axe()
+
+asv1
+```
+
+```{r asv2-stage}
+# Box plot by timepoint
+asv2 <- ggplot(observed_df, aes(x = factor(hpf), y = ObservedFeatures, 
+                                fill = factor(hpf), color=factor(hpf))) +
+  
+  geom_violin(
+              alpha = 0.5, 
+              width = 0.9, 
+              outlier.shape = NA, 
+              show.legend=FALSE) +
+  
+  geom_boxplot(
+               color="black",
+               alpha=1,
+               width = 0.2, 
+               outlier.shape = NA, 
+               show.legend=FALSE) +
+  
+  scale_fill_manual(values = hpf.3.colors) +
+  scale_color_manual(values = hpf.3.colors)+
+  
+  labs(
+    title = "",
+    x = "",
+    y = ""
+  ) +
+  theme_sleek_axe()
+
+asv2
+```
+
+```{r asv-int-asv3}
+# Box plot by leachate x timepoint interaction
+asv3 <- ggplot(observed_df, aes(x = factor(hpf), y = ObservedFeatures,
+                                fill = leachate, color=leachate)) +
+  
+  geom_violin(aes(group = interaction(hpf, leachate)),
+              alpha = 0.5, 
+              width = 1.5,
+              position=position_dodge(width=0.8),
+              show.legend=FALSE) +
+  
+  geom_boxplot(aes(group = interaction(hpf, leachate)),
+               color="black",
+               alpha = 1,
+               width = 0.2, 
+               outlier.shape = NA, 
+               position=position_dodge(width=0.8),
+               show.legend=FALSE) +
+  
+   scale_x_discrete(expand = expansion(mult = c(0.02, 0.02))) +
+  
+  #geom_beeswarm(aes(group = interaction(hpf, leachate)),
+  #            dodge.width = 0.7, 
+  #            size = 1.5, 
+  #            alpha = 1, 
+  #            show.legend = FALSE) +
+
+  scale_color_manual(values = leachate.colors) +
+  scale_fill_manual(values = leachate.colors)+
+    
+  labs(
+    title = "",
+    x = "",
+    y = ""
+      ) +
+  theme_sleek_axe()
+
+asv3  
+```
+
+```{r asv-combo, fig.width=10, fig.height=4}
+asv_combo <- asv3 + asv1 + asv2 +
+  plot_layout(widths = c(box3, box1, box2))+
+  plot_annotation(
+    title = "Observed Features (ASV Richnness)",
+    theme = theme(
+      plot.title = element_text(size = 14, color = "grey40",  hjust = 0.5)
+    )
+  )
+asv_combo
+```
+
+
+```{r}
+# Save plots
+ggsave(filename = file.path(figures_dir, "observed_features_by_leachate.png"), plot = asv1, width = 10, height = 6, dpi = 900)
+ggsave(filename = file.path(figures_dir, "observed_features_by_timepoint.png"), plot = asv2, width = 10, height = 6, dpi = 900)
+ggsave(filename = file.path(figures_dir, "observed_features_leachate_x_timepoint.png"), plot = asv3, width = 10, height = 6, dpi = 900)
+ggsave(filename = file.path(figures_dir, "observed_features_combined.png"), plot = asv_combo, width = 10, height = 4, dpi = 900)
+```
+
+# Alpha Diversity Summary Panel
+
+## Shannon + Faith
+```{r}
+alpha_shannon_faith <- shannon_combo / faith_combo +
+  plot_annotation(
+    title = "Alpha Diversity",
+    theme = theme(
+      plot.title = element_text(size = 14, color = "grey40", hjust = 0.5)
+    )
+  )
+
+alpha_shannon_faith
+```
+```{r}
+ggsave(filename = file.path(figures_dir, "alpha_shannon_faith.png"), plot = alpha_shannon_faith, width = 10, height = 6, dpi = 900)
+```
+
+
+## Shannon, Faith, Pielou, Observed Features
+
+```{r, fig.height=8, fig.width=9}
+alpha_combined_v2 <- wrap_plots(shannon_combo, faith_combo,
+                                pielou_combo, asv_combo, 
+                                ncol=1, 
+                                nrow=4, 
+                                byrow=TRUE) +
+  plot_annotation(
+    title = "Alpha Diversity Metrics by Leachate Treatment, Timepoint, and Interaction",
+    theme = theme(
+      plot.title = element_text(size = 16, color = "grey30", hjust = 0.5)
+    )
+  )
+
+alpha_combined_v2
+```
+
+# Beta Diversity
+
+**Beta diversity measures the dissimilarity in community composition
+between samples.**
+
+
+
+## Bray-Curtis Dissimilarity
+
+Bray-Curtis dissimilarity is based on abundance differences and does not
+account for phylogeny.
+
+```{r, braycurtis-data}
+# Load Bray-Curtis PCoA results
+bc_pcoa <- read_qza(file.path(core_metrics_path, "bray_curtis_pcoa_results.qza"))
+
+# Extract principle component coordinates
+bc_coords <- bc_pcoa$data$Vectors
+```
+
+```{r, braycurtis-metadata}
+bc_coords <- bc_coords %>% 
+  left_join(metadata, by = "SampleID")
+
+bc_variance <- bc_pcoa$data$ProportionExplained
+```
+
+```{r, braycurtis-PCoAplot}
+#| fig-width: 10
+#| fig-height: 8
+
+# PCoA plot colored by leachate
+bray1 <- ggplot(bc_coords, aes(x = PC1, y = PC2, color = factor(leachate), shape = factor(hpf))) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_manual(values=leachate.colors) +
+  labs(
+    title = "Bray-Curtis PCoA",
+    subtitle = "Community composition dissimilarity",
+    x = paste0("PC1 (", round(bc_variance[1] * 100, 2), "%)"),
+    y = paste0("PC2 (", round(bc_variance[2] * 100, 2), "%)"),
+    color = "Leachate",
+    shape = "Timepoint"
+  ) +
+  theme_sleek_axe() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "grey40"),
+    axis.title = element_text(size = 12),
+    legend.position = "right"
+  )
+
+# PCoA plot colored by timepoint
+bray2 <- ggplot(bc_coords, aes(x = PC1, y = PC2, color = factor(hpf), shape = factor(leachate)), fill = factor(cross)) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_manual(values=hpf.3.colors) +
+  labs(
+    title = "Bray-Curtis PCoA",
+    subtitle = "Community composition dissimilarity",
+    x = paste0("PC1 (", round(bc_variance[1] * 100, 2), "%)"),
+    y = paste0("PC2 (", round(bc_variance[2] * 100, 2), "%)"),
+    color = "Timepoint (hpf)",
+    shape = "Leachate"
+  ) +
+  theme_sleek_axe() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "grey40"),
+    axis.title = element_text(size = 12),
+    legend.position = "right"
+  )
+
+bray1
+bray2
+```
+
+```{r}
+# Save plots
+ggsave(filename = file.path(figures_dir, "bray_curtis_by_leachate.png"), plot = bray1, width = 10, height = 8, dpi = 300)
+ggsave(filename = file.path(figures_dir, "bray_curtis_by_timepoint.png"), plot = bray2, width = 10, height = 8, dpi = 300)
+```
+
+::: callout-note
+44.35% of variation explained by... parental cross? How do we add that
+info into the figure?
+:::
+
+## Jaccard Distance
+
+Jaccard distance is based on presence/absence and does not account for
+phylogeny.
+
+```{r}
+# Load Jaccard PCoA results
+jac_pcoa <- read_qza(file.path(core_metrics_path, "jaccard_pcoa_results.qza"))
+
+# Extract coordinates and variance explained
+jac_coords <- jac_pcoa$data$Vectors 
+
+# View 
+head(jac_coords)
+```
+
+```{r}
+jac_coords <- jac_coords %>%
+  left_join(metadata, by = "SampleID")
+
+head(jac_coords)
+
+jac_variance <- jac_pcoa$data$ProportionExplained
+
+head(jac_variance)
+```
+
+```{r}
+#| fig-width: 13
+#| fig-height: 8
+
+# PCoA plot colored by leachate
+jacc1 <- ggplot(jac_coords, aes(x = PC1, y = PC2, color = factor(leachate), shape = factor(hpf))) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_manual(values=leachate.colors) +
+  labs(
+    title = "Jaccard PCoA",
+    subtitle = "Presence/absence dissimilarity",
+    x = paste0("PC1 (", round(jac_variance[1] * 100, 2), "%)"),
+    y = paste0("PC2 (", round(jac_variance[2] * 100, 2), "%)"),
+    color = "Leachate",
+    shape = "Timepoint"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "grey40"),
+    axis.title = element_text(size = 12),
+    legend.position = "right"
+  )
+
+# PCoA plot colored by timepoint
+jacc2 <- ggplot(jac_coords, aes(x = PC1, y = PC2, color = factor(hpf), shape = factor(leachate))) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_manual(values=hpf.3.colors) +
+  labs(
+    title = "Jaccard PCoA",
+    subtitle = "Presence/absence dissimilarity",
+    x = paste0("PC1 (", round(jac_variance[1] * 100, 2), "%)"),
+    y = paste0("PC2 (", round(jac_variance[2] * 100, 2), "%)"),
+    color = "Timepoint (hpf)",
+    shape = "Leachate"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "grey40"),
+    axis.title = element_text(size = 12),
+    legend.position = "right"
+  )
+
+# Save plots
+ggsave(filename = file.path(figures_dir, "jaccard_by_leachate.png"), plot = jacc1, width = 10, height = 8, dpi = 300)
+ggsave(filename = file.path(figures_dir, "jaccard_by_timepoint.png"), plot = jacc2, width = 10, height = 8, dpi = 300)
+
+jacc1
+jacc2
+```
+
+## Weighted UniFrac Distance
+
+Weighted UniFrac considers phylogenetic distances and abundance
+differences.
+
+```{r}
+# Load Weighted UniFrac PCoA results
+wuf_pcoa <- read_qza(file.path(core_metrics_path, "weighted_unifrac_pcoa_results.qza"))
+
+# Extract coordinates and variance explained
+wuf_coords <- wuf_pcoa$data$Vectors 
+
+head(wuf_coords)
+```
+
+```{r}
+wuf_coords_n_meta <- wuf_coords %>%
+  left_join(metadata, by = "SampleID")
+
+wuf_variance <- wuf_pcoa$data$ProportionExplained
+```
+
+```{r}
+#| fig-width: 13
+#| fig-height: 8
+
+# PCoA plot colored by leachate
+wufr1 <- ggplot(wuf_coords_n_meta, aes(x = PC1, y = PC2, color = factor(leachate), shape = factor(hpf))) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_manual(values=leachate.colors) +
+  labs(
+    title = "Weighted UniFrac PCoA",
+    subtitle = "Phylogenetic dissimilarity (abundance-weighted)",
+    x = paste0("PC1 (", round(wuf_variance[1] * 100, 2), "%)"),
+    y = paste0("PC2 (", round(wuf_variance[2] * 100, 2), "%)"),
+    color = "Leachate",
+    shape = "Timepoint"
+  ) +
+  theme_sleek_axe() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "grey40"),
+    axis.title = element_text(size = 12),
+    legend.position = "right"
+  )
+
+# PCoA plot colored by timepoint
+wufr2 <- ggplot(wuf_coords_n_meta, aes(x = PC1, y = PC2, color = factor(hpf), shape = factor(leachate))) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_manual(values=hpf.3.colors) +
+  labs(
+    title = "Weighted UniFrac PCoA",
+    subtitle = "Phylogenetic dissimilarity (abundance-weighted)",
+    x = paste0("PC1 (", round(wuf_variance[1] * 100, 2), "%)"),
+    y = paste0("PC2 (", round(wuf_variance[2] * 100, 2), "%)"),
+    color = "Timepoint (hpf)",
+    shape = "Leachate"
+  ) +
+  theme_sleek_axe() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "grey40"),
+    axis.title = element_text(size = 12),
+    legend.position = "right"
+  )
+
+# Save plots
+ggsave(filename = file.path(figures_dir, "weighted_unifrac_by_leachate.png"), plot = wufr1, width = 10, height = 8, dpi = 900)
+ggsave(filename = file.path(figures_dir, "weighted_unifrac_by_timepoint.png"), plot = wufr2, width = 10, height = 8, dpi = 900)
+
+wufr1
+wufr2
+```
+
+## Unweighted UniFrac Distance
+
+Unweighted UniFrac considers phylogenetic distances but not abundance
+(presence/absence only).
+
+```{r}
+# Load Unweighted UniFrac PCoA results
+uwuf_pcoa <- read_qza(file.path(core_metrics_path, "unweighted_unifrac_pcoa_results.qza"))
+
+# Extract coordinates and variance explained
+uwuf_coords <- uwuf_pcoa$data$Vectors %>%
+  left_join(metadata, by = "SampleID")
+
+uwuf_variance <- uwuf_pcoa$data$ProportionExplained
+```
+
+```{r}
+#| fig-width: 10
+#| fig-height: 8
+
+# PCoA plot colored by leachate
+uwuf1 <- ggplot(uwuf_coords, aes(x = PC1, y = PC2, color = factor(leachate), shape = factor(timepoint))) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_viridis_d(option = "plasma", begin = 0.2, end = 0.9) +
+  labs(
+    title = "Unweighted UniFrac PCoA",
+    subtitle = "Phylogenetic dissimilarity (presence/absence)",
+    x = paste0("PC1 (", round(uwuf_variance[1] * 100, 2), "%)"),
+    y = paste0("PC2 (", round(uwuf_variance[2] * 100, 2), "%)"),
+    color = "Leachate",
+    shape = "Timepoint"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "grey40"),
+    axis.title = element_text(size = 12),
+    legend.position = "right"
+  )
+
+# PCoA plot colored by timepoint
+uwuf2 <- ggplot(uwuf_coords, aes(x = PC1, y = PC2, color = factor(timepoint), shape = factor(leachate))) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_color_viridis_d(option = "mako", begin = 0.2, end = 0.9) +
+  labs(
+    title = "Unweighted UniFrac PCoA",
+    subtitle = "Phylogenetic dissimilarity (presence/absence)",
+    x = paste0("PC1 (", round(uwuf_variance[1] * 100, 2), "%)"),
+    y = paste0("PC2 (", round(uwuf_variance[2] * 100, 2), "%)"),
+    color = "Timepoint (hpf)",
+    shape = "Leachate"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 11, color = "grey40"),
+    axis.title = element_text(size = 12),
+    legend.position = "right"
+  )
+
+# Save plots
+ggsave(filename = file.path(figures_dir, "unweighted_unifrac_by_leachate.png"), plot = uwuf1, width = 10, height = 8, dpi = 300)
+ggsave(filename = file.path(figures_dir, "unweighted_unifrac_by_timepoint.png"), plot = uwuf2, width = 10, height = 8, dpi = 300)
+
+uwuf1
+uwuf2
+```
+
+## Beta Diversity Summary Panel
+
+```{r}
+#| fig-width: 14
+#| fig-height: 12
+
+# Combine all beta diversity PCoA plots by leachate
+beta_leachate <- (bray1 + jacc1) / (wufr1 + uwuf1) +
+  plot_annotation(
+    title = "Beta Diversity PCoA Plots - Colored by Leachate Treatment",
+    theme = theme(plot.title = element_text(face = "bold", size = 16, hjust = 0.5))
+  )
+
+# Combine all beta diversity PCoA plots by timepoint
+beta_timepoint <- (bray2 + jacc2) / (wufr2 + uwuf2) +
+  plot_annotation(
+    title = "Beta Diversity PCoA Plots - Colored by Developmental Timepoint",
+    theme = theme(plot.title = element_text(face = "bold", size = 16, hjust = 0.5))
+  )
+
+# Save plots
+ggsave(filename = file.path(figures_dir, "beta_diversity_panel_by_leachate.png"), plot = beta_leachate, width = 14, height = 12, dpi = 300)
+ggsave(filename = file.path(figures_dir, "beta_diversity_panel_by_timepoint.png"), plot = beta_timepoint, width = 14, height = 12, dpi = 300)
+
+beta_leachate
+beta_timepoint
+```
+
+# Summary
+
+This was for initial exploration of alpha and beta diversity metrics in the coral microbiome dataset. We generated a comprehensive set of visualizations to assess how microbial diversity changes with PVC leachate exposure and developmental progression from 4 to 14 hours post-fertilization.
+
+**Alpha Diversity Metrics:** - Shannon Diversity Index - Faith's
+Phylogenetic Diversity - Pielou's Evenness - Observed ASV Richness -
+Alpha Diversity Summary Panel (all metrics combined)
+
+**Beta Diversity Metrics:** 
+- Bray-Curtis dissimilarity
+(abundance-based) - Jaccard distance (presence/absence) - Weighted
+UniFrac distance (phylogenetic + abundance) - Unweighted UniFrac
+distance (phylogenetic presence/absence) - Beta Diversity Summary Panel
+(all PCoA plots combined)
+
+Each metric is visualized by both leachate treatment level and
+developmental timepoint (hours post fertilization), allowing for
+comprehensive assessment of how microbiome diversity changes with PVC
+leachate exposure and coral development.
+
+**All plots are saved to the `figs` directory**
