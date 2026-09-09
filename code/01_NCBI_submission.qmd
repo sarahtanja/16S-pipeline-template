@@ -19,19 +19,82 @@ knitr::opts_chunk$set(
 )        
 ```
 
-# **1 Background research**
+```{r}
+library(tidyverse)
+```
+
+The goal of this step is to QAQC your metadata and format it and submit it along with the fastq sequence files to the NCBI sequence-read archive. Archiving sample sequences and their associated metadata and referencing them by their BioProject number is required for publication. This process allows your sample sequences to become publicly available upon publication.
+
+# 1 Study Background
+
+> enter info on the study design and samples for context
+
+# 2 NCBI Submission
 
 - Watch this 10min video tutorial: [How to Submit to SRA, A Beginner’s Guide](https://www.youtube.com/watch?v=PTg9Ru68fc0)
 
 - Read the [SRA Submission Wizard Help](https://www.ncbi.nlm.nih.gov/sra/docs/submitportal/) page
 
-# **2 Log in to NCBI**
+- Navigate to the NCBI Submission Portal Login: <https://account.ncbi.nlm.nih.gov/?back_url=https%3A//submit.ncbi.nlm.nih.gov/>
 
-Navigate to the NCBI Submission Portal Login: <https://account.ncbi.nlm.nih.gov/?back_url=https%3A//submit.ncbi.nlm.nih.gov/>
+- Log-in through ORCiD, or sign-up directly with NCBI to create an account.
 
-Log-in through ORCiD, or sign-up directly with NCBI to create an account.
+- For 16S rRNA sequences, checkout the overview for the submission process at the [Sequence Read Archive (SRA) "What You Should Expect"](https://submit.ncbi.nlm.nih.gov/about/sra/#step1) page
 
-# 3 Examine fastq files
+- When ready, click `SUBMIT` at the bottom of the SRA page to start the process
+
+- Start a new Sequence Read Archive submission, SUB########
+
+  > record submission ID: SUB########
+
+- Follow prompts to fill out the:
+
+  1. Submitter (contact info)
+
+  2. General Info (select No to create BioProject and BioSample accession numbers)
+  
+  3. Project Info (Title and description of study, grant numbers)
+  
+  4. Biosample Type (choose based on your study... most likely will be `invertebrate` if your samples are assessing a host microbiome OR `MIMARKS survey related - water` if your samples are eDNA from seawater)
+  
+  5. Biosample Attributes (can be entered manually in the built-in table editor... BUT it's recommended to QAQC your metadata and inspect your fastq  files using the following instructions from step 3 below)
+
+
+# 3 Biosample required attributes
+
+These are the metadata columns that are required for NCBI submission! One required column, `sample_name`, has values that are custom, use whatever makes sense for your study and is still detailed enough for someone else to understand your sample naming system.
+
+All other required columns have specific selections available from pre-set options, or specific formats. Record explanations of your selections under each header here to help you build your metadata file.
+
+I recommend building the metadata file in Google Docs or Excel, then export it as .csv, name it `ncbi-metadata.csv`, and place it in the `input/metadata` folder. You can also assemble or wrangle your metadata within R.
+
+#### sample_name
+
+#### organism
+
+#### collection_date
+
+> The date on which the sample was collected; date/time ranges are supported by providing two dates from among the supported value formats, delimited by a forward-slash character; collection times are supported by adding "T", then the hour and minute after the date, and must be in Coordinated Universal Time (UTC), otherwise known as "Zulu Time" (Z); supported formats include "DD-Mmm-YYYY", "Mmm-YYYY", "YYYY" or ISO 8601 standard "YYYY-mm-dd", "YYYY-mm", "YYYY-mm-ddThh:mm:ss"; e.g., 30-Oct-1990, Oct-1990, 1990, 1990-10-30, 1990-10, 21-Oct-1952/15-Feb-1953, 2015-10-11T17:53:03Z; valid non-ISO dates will be automatically transformed to ISO format
+
+#### env_broad_scale
+
+#### env_local_scale
+
+#### env_medium
+
+#### geo_loc_name
+
+#### lat_lon
+
+> The geographical coordinates of the location where the sample was collected. Specify as degrees latitude and longitude in format "d\[d.dddd\] N\|S d\[dd.dddd\] W\|E", eg, 38.98 N 77.11 W
+
+#### depth
+
+> Depth is defined as the vertical distance below surface, e.g. for sediment or soil samples depth is measured from sediment or soil surface, respectivly. Depth can be reported as an interval for subsurface samples.
+
+# Wrangle metadata
+
+# 4 Examine fastq files
 
 ```{r, engine='bash'}
 
@@ -50,3 +113,5 @@ Each sample will have 4 files to upload:
 ```{r, engine='bash'}
 ls -1 ../input/fastq/*fastq.gz* | wc -l
 ```
+
+# Join
