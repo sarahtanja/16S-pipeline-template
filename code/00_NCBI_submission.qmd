@@ -49,16 +49,15 @@ The goal of this step is to QAQC your metadata and format it and submit it along
 
 - Follow prompts to fill out the:
 
-  1. Submitter (contact info)
+  1.  Submitter (contact info)
 
-  2. General Info (select No to create BioProject and BioSample accession numbers)
-  
-  3. Project Info (Title and description of study, grant numbers)
-  
-  4. Biosample Type (choose based on your study... most likely will be `invertebrate` if your samples are assessing a host microbiome OR `MIMARKS survey related - water` if your samples are eDNA from seawater)
-  
-  5. Biosample Attributes (can be entered manually in the built-in table editor... BUT it's recommended to QAQC your metadata and inspect your fastq  files using the following instructions from step 3 below)
+  2.  General Info (select No to create BioProject and BioSample accession numbers)
 
+  3.  Project Info (Title and description of study, grant numbers)
+
+  4.  Biosample Type (choose based on your study... most likely will be `invertebrate` if your samples are assessing a host microbiome OR `MIMARKS survey related - water` if your samples are eDNA from seawater)
+
+  5.  Biosample Attributes (can be entered manually in the built-in table editor... BUT it's recommended to QAQC your metadata and inspect your fastq files using the following instructions from step 3 below)
 
 # 3 Biosample required attributes
 
@@ -92,9 +91,9 @@ I recommend building the metadata file in Google Docs or Excel, then export it a
 
 > Depth is defined as the vertical distance below surface, e.g. for sediment or soil samples depth is measured from sediment or soil surface, respectivly. Depth can be reported as an interval for subsurface samples.
 
-# Wrangle metadata
+# 4 Wrangle metadata
 
-# 4 Examine fastq files
+# 5 Inspect fastq.gz files
 
 ```{r, engine='bash'}
 
@@ -114,4 +113,8 @@ Each sample will have 4 files to upload:
 ls -1 ../input/fastq/*fastq.gz* | wc -l
 ```
 
-# Join
+# 6 Generate checksums
+
+# 7 Join metadata
+
+# 8 FTP File Upload
